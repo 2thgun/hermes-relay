@@ -140,6 +140,11 @@ export interface RelayTransportConfig {
   /** Pin supplied by the operator-reviewed pairing invite before a session
    * record exists. It is compared before the first WebSocket is opened. */
   expectedCertPin?: string
+  /** TLS trust policy. `auto` (default) pins self-signed/private endpoints and
+   * relies on CA validation for publicly trusted ones, so a CDN edge
+   * certificate rotation does not brick the pairing. `always` keeps the old
+   * leaf-pin-everywhere behaviour; `never` skips the probe. */
+  pinMode?: 'auto' | 'always' | 'never'
   /** Authenticate a native Relay-only secure proxy WebSocket upgrade. */
   sessionHeader?: boolean
   /** Human-readable label for the "Paired Devices" list. */
@@ -448,6 +453,12 @@ export class RelayTransport extends EventEmitter implements Transport {
    * exact same TLS handshake (same SNI, same cert selection), costs
    * ~10–30ms once per connect, and surfaces `rawCert` directly. */
   private async verifyOrCapturePin(): Promise<void> {
+    const mode = this.cfg.pinMode ?? 'auto'
+    if (mode === 'never') {
+      this.pinnedCertificatePem = undefined
+
+      return
+    }
     const u = new URL(this.cfg.url)
     const host = u.hostname
     const port = parseInt(u.port || '443', 10)
@@ -455,16 +466,16 @@ export class RelayTransport extends EventEmitter implements Transport {
     const stored = await getSession(this.cfg.url)
     const expectedPin = stored?.certPinSha256 ?? this.cfg.expectedCertPin ?? null
 
-    const verified = await new Promise<{ pin: string; der: Buffer }>((resolve, reject) => {
+    const verified = await new Promise<{ pin: string; der: Buffer; authorized: boolean }>((resolve, reject) => {
       const socket = tls.connect({
         host,
         port,
         servername: host,
-        // A server-advertised pin is authoritative trust material. Permit the
-        // handshake to reach pin comparison even when the private proxy uses
-        // a locally issued certificate; without a pin, normal CA validation
-        // remains mandatory before TOFU capture.
-        rejectUnauthorized: !expectedPin
+        // `always` treats the pin as authoritative trust material and may
+        // reach comparison with a privately issued certificate. `auto` lets
+        // the handshake complete so the probe can tell a CA-validated public
+        // endpoint from a self-signed one; the WS itself still validates.
+        rejectUnauthorized: mode === 'always' ? !expectedPin : false
       })
 
       const timer = setTimeout(() => {
@@ -487,8 +498,9 @@ export class RelayTransport extends EventEmitter implements Transport {
             return
           }
           const pin = extractSpkiSha256(raw)
+          const authorized = socket.authorized === true
           socket.end()
-          resolve({ pin, der: raw })
+          resolve({ pin, der: raw, authorized })
         } catch (e) {
           socket.destroy()
           reject(e instanceof Error ? e : new Error(String(e)))
@@ -502,6 +514,23 @@ export class RelayTransport extends EventEmitter implements Transport {
     })
 
     const actualPin = verified.pin
+
+    // Publicly trusted endpoints (a CDN edge, for example) rotate leaf certs
+    // on their own schedule. Pinning those would turn a routine rotation into
+    // a permanent pairing outage, so `auto` defers to normal CA validation on
+    // the WebSocket for them and keeps pinning for self-signed/private peers.
+    if (mode === 'auto' && verified.authorized) {
+      if (expectedPin && !comparePins(expectedPin, actualPin)) {
+        this.pushLog(`[tofu] public CA cert rotated for ${key}; dropping stored pin`)
+        if (stored) {
+          await saveSession(this.cfg.url, stored.token, stored.serverVersion, { certPin: null })
+        }
+      }
+      this.pinnedCertificatePem = undefined
+
+      return
+    }
+
     if (expectedPin) {
       if (!comparePins(expectedPin, actualPin)) {
         // Surface a user-friendly remediation path. The session file carries
