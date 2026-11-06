@@ -51,6 +51,26 @@ import {
   computerScreenshotHandler,
   computerStatusHandler
 } from './handlers/computer.js'
+import {
+  uiActionHandler,
+  uiScreenshotHandler,
+  uiStatusHandler,
+  uiWindowsHandler
+} from './handlers/desktopUi.js'
+import {
+  browserClickHandler,
+  browserCloseHandler,
+  browserDownloadHandler,
+  browserInspectHandler,
+  browserKeyHandler,
+  browserOpenHandler,
+  browserScreenshotHandler,
+  browserScrollHandler,
+  browserStatusHandler,
+  browserTypeHandler,
+  browserUploadHandler,
+  browserWaitHandler
+} from './handlers/browser.js'
 import type { ToolHandler } from './router.js'
 import { readDesktopUseSettingsSync } from '../lib/desktopUseSettings.js'
 import { approveComputerGrant } from './computerActionApproval.js'
@@ -115,7 +135,11 @@ const BASE_DESKTOP_HANDLERS: Record<string, ToolHandler> = {
   desktop_adb_push: adbPushHandler,
   desktop_adb_pull: adbPullHandler,
   desktop_adb_install: adbInstallHandler,
-  desktop_adb_logcat: adbLogcatHandler
+  desktop_adb_logcat: adbLogcatHandler,
+
+  // ── Platform-neutral discovery (safe without a grant) ──────────────────
+  desktop_ui_status: uiStatusHandler,
+  desktop_browser_status: browserStatusHandler
 }
 
 export const RAW_EXECUTION_TOOLS = Object.freeze([
@@ -129,7 +153,11 @@ export const FILE_TOOLS = Object.freeze([
   'desktop_copy_directory', 'desktop_zip', 'desktop_unzip', 'desktop_checksum', 'desktop_open_in_editor'
 ])
 export const SCREEN_INPUT_TOOLS = Object.freeze([
-  'desktop_clipboard_read', 'desktop_clipboard_write', 'desktop_screenshot', ...DESKTOP_COMPUTER_USE_TOOLS
+  'desktop_clipboard_read', 'desktop_clipboard_write', 'desktop_screenshot', ...DESKTOP_COMPUTER_USE_TOOLS,
+  'desktop_ui_windows', 'desktop_ui_screenshot', 'desktop_ui_action',
+  'desktop_browser_open', 'desktop_browser_inspect', 'desktop_browser_click', 'desktop_browser_type',
+  'desktop_browser_key', 'desktop_browser_scroll', 'desktop_browser_screenshot', 'desktop_browser_upload',
+  'desktop_browser_download', 'desktop_browser_wait', 'desktop_browser_close'
 ])
 export const RAW_USB_TOOLS = Object.freeze([
   'desktop_usb_devices',
@@ -150,7 +178,24 @@ const COMPUTER_USE_HANDLERS: Record<string, ToolHandler> = {
   desktop_computer_screenshot: computerScreenshotHandler,
   desktop_computer_action: computerActionHandler,
   desktop_computer_grant_request: computerGrantRequestHandler,
-  desktop_computer_cancel: computerCancelHandler
+  desktop_computer_cancel: computerCancelHandler,
+
+  // Cross-platform UI + browser surface. Advertised with the computer-use
+  // toolset because both need the same screen_input policy/grant.
+  desktop_ui_windows: uiWindowsHandler,
+  desktop_ui_screenshot: uiScreenshotHandler,
+  desktop_ui_action: uiActionHandler,
+  desktop_browser_open: browserOpenHandler,
+  desktop_browser_inspect: browserInspectHandler,
+  desktop_browser_click: browserClickHandler,
+  desktop_browser_type: browserTypeHandler,
+  desktop_browser_key: browserKeyHandler,
+  desktop_browser_scroll: browserScrollHandler,
+  desktop_browser_screenshot: browserScreenshotHandler,
+  desktop_browser_upload: browserUploadHandler,
+  desktop_browser_download: browserDownloadHandler,
+  desktop_browser_wait: browserWaitHandler,
+  desktop_browser_close: browserCloseHandler
 }
 
 /** The canonical desktop tool name → handler map. Keys must match the

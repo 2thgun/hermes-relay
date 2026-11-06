@@ -55,6 +55,8 @@ export interface DaemonStatus {
   tools_enabled?: boolean
   computer_grant?: DaemonComputerGrantStatus
   computer_control?: ComputerControlLifecycleStatus
+  /** Desktop platform adapter + per-capability availability (Hyprland/X11). */
+  capabilities?: Record<string, unknown>
 }
 
 export function daemonStatusPath(): string {

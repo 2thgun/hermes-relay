@@ -71,6 +71,7 @@ import {
   type ComputerGrant
 } from '../tools/computerGrants.js'
 import { closeCuaControlSession, setComputerControlLifecycleListener } from '../tools/cuaDriver.js'
+import { platformCapabilitySummary } from '../tools/handlers/desktopUi.js'
 import { DesktopToolRouter } from '../tools/router.js'
 import { configureCapabilityPolicies } from '../tools/capabilityRuntime.js'
 import { adbBackendAvailable } from '../tools/handlers/adb.js'
@@ -379,6 +380,28 @@ async function printDaemonStatus(args: ParsedArgs): Promise<number> {
     process.stdout.write(kv('account', `${user} (${privilege})`) + '\n')
   }
   process.stdout.write(kv('desktop', status.computer_use_enabled ? 'enabled' : 'disabled') + '\n')
+  const caps = status.capabilities as {
+    adapter?: string
+    session?: string
+    graphical?: boolean
+    reason?: string
+    browser?: { available?: boolean; running?: boolean }
+  } | undefined
+  if (caps) {
+    const platformLabel = [caps.adapter, caps.session].filter(Boolean).join(' / ') || 'unknown'
+    process.stdout.write(
+      kv('platform', `${platformLabel}${caps.graphical === false ? ` ${t.warn('(no graphical session)')}` : ''}`) + '\n'
+    )
+    if (caps.graphical === false && caps.reason) {
+      process.stdout.write(kv('reason', caps.reason) + '\n')
+    }
+    if (caps.browser) {
+      const browser = caps.browser.available === true
+        ? caps.browser.running === true ? 'available (running)' : 'available'
+        : 'unavailable'
+      process.stdout.write(kv('browser', browser) + '\n')
+    }
+  }
   if (status.computer_grant?.active) {
     process.stdout.write(
       kv(
@@ -1046,6 +1069,12 @@ export async function daemonCommand(args: ParsedArgs): Promise<number> {
     return writeDaemonStatus(status)
   }
   void updateStatus({})
+  // Publish the platform adapter/capability report once at startup so
+  // `daemon --status` explains why screen/input/browser tools are unavailable
+  // without tailing the journal.
+  void platformCapabilitySummary()
+    .then(capabilities => updateStatus({ capabilities }))
+    .catch(error => log.warn({ event: 'capability_probe_failed', message: rpcErrorMessage(error) }))
 
   const relay = new RelayTransport({
     url,

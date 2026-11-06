@@ -17,6 +17,7 @@
   "files": [
     "bin",
     "dist",
+    "native",
     "scripts",
     "README.md",
     "LICENSE"

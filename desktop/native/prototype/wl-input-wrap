@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Records the last requested pointer position so the hyprctl shim can answer
+# `cursorpos` after a real wl-input event. Test-only.
+set -euo pipefail
+STATE="${RELAY_PROTO_STATE:-/tmp/relay-proto}"
+REAL="${RELAY_PROTO_REAL_WL_INPUT:?set RELAY_PROTO_REAL_WL_INPUT}"
+"$REAL" "$@"
+cmd="${6:-}"
+case "$cmd" in
+  move|click|scroll) printf '%s, %s\n' "${7:-0}" "${8:-0}" > "$STATE/cursor" ;;
+  drag) printf '%s, %s\n' "${9:-0}" "${10:-0}" > "$STATE/cursor" ;;
+esac

@@ -43,6 +43,7 @@ import {
   initializeComputerControlSession,
   revokeComputerControlSession
 } from './computerGrants.js'
+import { platformCapabilitySummary } from './handlers/desktopUi.js'
 import {
   ComputerControlSecurityState,
   type ComputerControlAuthority
@@ -294,6 +295,7 @@ export class DesktopToolRouter {
   private readonly controlAuthority: ComputerControlAuthority
   private readonly controlSecurity: ComputerControlSecurityState
   private readonly activeControlAuthorities = new Map<string, ComputerControlAuthority>()
+  private heartbeatInFlight = false
 
   constructor(opts: DesktopToolRouterOpts) {
     this.handlers = opts.handlers
@@ -354,8 +356,8 @@ export class DesktopToolRouter {
 
     // Fire one heartbeat immediately so the server learns about us on attach
     // without waiting a full 30s cycle.
-    this.sendHeartbeat()
-    this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_MS)
+    void this.sendHeartbeat()
+    this.heartbeatTimer = setInterval(() => void this.sendHeartbeat(), HEARTBEAT_MS)
     // Don't keep the event loop alive just for the heartbeat.
     this.heartbeatTimer.unref?.()
   }
@@ -393,10 +395,11 @@ export class DesktopToolRouter {
    * — just no-ops. Now enriched with host/platform/version/uptime/last_error
    * so a `desktop_health` introspection tool can answer "what client is
    * connected, since when, and is it healthy?" without round-tripping. */
-  private sendHeartbeat(): void {
-    if (!this.relay) {
+  private async sendHeartbeat(): Promise<void> {
+    if (!this.relay || this.heartbeatInFlight) {
       return
     }
+    this.heartbeatInFlight = true
     try {
       const payload: Record<string, unknown> = {
         advertised_tools: this.advertisedTools,
@@ -411,6 +414,14 @@ export class DesktopToolRouter {
         interactive: this.interactive,
         device_id: desktopDeviceId(),
         device_name: os.hostname()
+      }
+      try {
+        payload.capabilities = await platformCapabilitySummary()
+      } catch (error) {
+        payload.capabilities = {
+          adapter: 'unavailable',
+          error: error instanceof Error ? error.message : String(error)
+        }
       }
       if (this.advertisedTools.some(name => name.startsWith('desktop_computer_'))) {
         const runtime = getComputerUseRuntimeSummary(this.controlAuthority)
@@ -442,6 +453,8 @@ export class DesktopToolRouter {
       this.relay.sendChannel('desktop', 'desktop.status', payload)
     } catch {
       // Heartbeat failures are non-fatal; next cycle retries.
+    } finally {
+      this.heartbeatInFlight = false
     }
   }
 
@@ -478,7 +491,8 @@ export class DesktopToolRouter {
     }
 
     const controller = new AbortController()
-    const timeoutMs = tool.startsWith('desktop_computer_') || tool.startsWith('desktop_adb_') || tool.startsWith('desktop_usb_')
+    const timeoutMs = tool.startsWith('desktop_computer_') || tool.startsWith('desktop_adb_') || tool.startsWith('desktop_usb_') ||
+      tool.startsWith('desktop_browser_') || tool === 'desktop_ui_action'
       ? COMPUTER_USE_HANDLER_TIMEOUT_MS
       : HANDLER_TIMEOUT_MS
     const timeoutTimer = setTimeout(() => {

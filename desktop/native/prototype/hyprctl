@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Test-only hyprctl shim that reports a live sway session in Hyprland's JSON
+# shape. Used by run-prototype.ts to exercise the real adapter against a real
+# wlroots compositor without installing Hyprland.
+set -euo pipefail
+
+STATE="${RELAY_PROTO_STATE:-/tmp/relay-proto}"
+WL_INPUT="${RELAY_PROTO_WL_INPUT:?set RELAY_PROTO_WL_INPUT}"
+cmd="${1:-}"; shift || true
+
+tree() { swaymsg -t get_tree -r; }
+
+case "$cmd" in
+  version)
+    echo '{"version":"0.54.3-shim","branch":"sway","commit":"prototype"}'
+    ;;
+  monitors)
+    swaymsg -t get_outputs -r | python3 -c '
+import json,sys
+outs = [o for o in json.load(sys.stdin) if o.get("active")]
+for i, o in enumerate(outs):
+    r = o["rect"]
+    print(json.dumps([{
+        "id": i, "name": o["name"], "width": r["width"], "height": r["height"],
+        "x": r["x"], "y": r["y"], "scale": (o.get("scale") or 1.0),
+        "transform": 0, "focused": bool(o.get("focused")), "disabled": False,
+    }]))'
+    ;;
+  clients)
+    tree | python3 -c '
+import json,sys
+t = json.load(sys.stdin)
+out = []
+def walk(n):
+    if n.get("pid") and n.get("app_id"):
+        r = n.get("rect") or {}
+        out.append({
+            "address": hex(int(n["id"])),
+            "mapped": True,
+            "hidden": False,
+            "at": [r.get("x", 0), r.get("y", 0)],
+            "size": [r.get("width", 0), r.get("height", 0)],
+            "workspace": {"id": (n.get("workspace") or {}).get("num", 1), "name": str((n.get("workspace") or {}).get("num", 1))},
+            "monitor": 0,
+            "class": n.get("app_id"),
+            "initialClass": n.get("app_id"),
+            "title": n.get("name", ""),
+            "pid": n["pid"],
+            "focusHistoryID": 0 if n.get("focused") else -1,
+            "floating": n.get("type") == "floating_con",
+            "xwayland": False,
+        })
+    for c in n.get("nodes", []) + n.get("floating_nodes", []):
+        walk(c)
+walk(t)
+print(json.dumps(out))'
+    ;;
+  activewindow)
+    tree | python3 -c '
+import json,sys
+t = json.load(sys.stdin)
+found = {}
+def walk(n):
+    global found
+    if n.get("focused") and n.get("pid"):
+        found = {"address": hex(int(n["id"])), "class": n.get("app_id"), "title": n.get("name", "")}
+    for c in n.get("nodes", []) + n.get("floating_nodes", []):
+        walk(c)
+walk(t)
+print(json.dumps(found))'
+    ;;
+  cursorpos)
+    if [ -f "$STATE/cursor" ]; then cat "$STATE/cursor"; else echo "0, 0"; fi
+    ;;
+  dispatch)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      movecursor)
+        "$WL_INPUT" --space 0 0 1280 720 move "$1" "$2"
+        printf '%s, %s\n' "$1" "$2" > "$STATE/cursor"
+        ;;
+      focuswindow)
+        addr="${1#address:}"
+        con_id=$((addr))
+        swaymsg "[con_id=$con_id]" focus >/dev/null
+        ;;
+      workspace)
+        swaymsg "workspace $1" >/dev/null
+        ;;
+      *)
+        echo "unsupported dispatch: $sub" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  *)
+    echo "unsupported hyprctl command: $cmd" >&2
+    exit 1
+    ;;
+esac
