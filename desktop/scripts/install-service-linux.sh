@@ -112,7 +112,7 @@ Wants=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=$WRAPPER
+ExecStart=$WRAPPER --experimental-computer-use --no-voice
 Restart=always
 RestartSec=5
 TimeoutStopSec=15
