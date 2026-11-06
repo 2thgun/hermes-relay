@@ -1,33 +1,30 @@
-"""Run the Relay WSS server inside the Hermes plugin process.
+"""Run the Relay WSS server as a plugin-managed sidecar.
 
-Historically the relay ran as a separate ``python -m plugin.relay`` systemd
-unit. That works, but it means a plugin install is not self-contained: users
-have to remember a unit, a port, and a working directory. This module owns the
-server instead: one daemon thread, one asyncio loop, started from
-``register(ctx)``. A bind failure (for example, an older systemd unit still
-listening) is logged and leaves the external server in place.
+The Hermes gateway forks after loading plugins, so a server thread started in
+``register()`` only lives in the parent and never reaches the worker that owns
+the port. A small child process survives that fork and needs no systemd unit:
+installing the plugin is enough.
+
+Health is checked before spawning, so repeated registration, gateway reloads,
+and a manually started relay do not create duplicates. The sidecar is detached,
+logs under ``$HERMES_HOME/logs/hermes-relay-sidecar.log``, and is terminated on
+a clean plugin-process exit.
 """
 
 from __future__ import annotations
 
-import asyncio
+import atexit
 import logging
 import os
-import threading
-
-from aiohttp import web
-
-from .config import RelayConfig
-from .server import create_app
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 18767
-
-_lock = threading.Lock()
-_thread: threading.Thread | None = None
-_loop: asyncio.AbstractEventLoop | None = None
-_runner: web.AppRunner | None = None
+_process: subprocess.Popen[bytes] | None = None
 
 
 def embedded_enabled() -> bool:
@@ -50,72 +47,81 @@ def relay_host() -> str:
     return os.getenv("RELAY_HOST", "0.0.0.0")
 
 
-def start_embedded_relay() -> threading.Thread | None:
-    """Start the relay once, in a daemon thread. Idempotent and non-blocking."""
+def _healthy() -> bool:
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{relay_port()}/health", timeout=0.7
+        ) as response:
+            return response.status == 200
+    except Exception:
+        return False
+
+
+def _log_path() -> Path:
+    home = Path(os.getenv("HERMES_HOME") or (Path.home() / ".hermes"))
+    logs = home / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    return logs / "hermes-relay-sidecar.log"
+
+
+def start_embedded_relay() -> subprocess.Popen[bytes] | None:
+    """Start the relay sidecar once. Idempotent and non-blocking."""
+    global _process
+
     if not embedded_enabled():
-        logger.info("Embedded relay disabled via HERMES_RELAY_EMBEDDED")
+        logger.info("Relay sidecar disabled via HERMES_RELAY_EMBEDDED")
         return None
 
-    # Keep the tool layer pointed at this instance even when the host chose a
-    # non-default port. ``desktop_tool`` reads this on every request.
-    os.environ.setdefault(
-        "DESKTOP_RELAY_URL", f"http://127.0.0.1:{relay_port()}"
-    )
+    port = relay_port()
+    os.environ.setdefault("DESKTOP_RELAY_URL", f"http://127.0.0.1:{port}")
 
-    global _thread
-    with _lock:
-        if _thread is not None and _thread.is_alive():
-            return _thread
-        _thread = threading.Thread(
-            target=_serve,
-            name="hermes-relay-embedded",
-            daemon=True,
-        )
-        _thread.start()
-        return _thread
+    if _healthy():
+        return None
+    if _process is not None and _process.poll() is None:
+        return _process
 
-
-def _serve() -> None:
-    global _loop, _runner
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    _loop = loop
-
+    plugin_dir = Path(__file__).resolve().parent.parent
+    log = _log_path()
+    env = os.environ.copy()
+    env.setdefault("HERMES_HOME", str(Path.home() / ".hermes"))
     try:
-        config = RelayConfig.from_env()
-        config.host = relay_host()
-        config.port = relay_port()
-        # Nginx Proxy Manager terminates TLS for the public URL. An embedded
-        # listener stays plain HTTP on the LAN/loopback side.
-        config.ssl_cert = None
-        config.ssl_key = None
+        handle = open(log, "ab", buffering=0)
+        _process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "relay",
+                "--host",
+                relay_host(),
+                "--port",
+                str(port),
+                "--no-ssl",
+            ],
+            cwd=str(plugin_dir),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            close_fds=True,
+        )
+    except OSError:
+        logger.exception("Could not start the Relay sidecar")
+        return None
 
-        app = create_app(config)
-        runner = web.AppRunner(app, access_log=None)
-        loop.run_until_complete(runner.setup())
-        site = web.TCPSite(runner, config.host, config.port)
-        loop.run_until_complete(site.start())
-        _runner = runner
-        logger.info(
-            "Embedded Hermes Relay listening on %s:%s",
-            config.host,
-            config.port,
-        )
-        loop.run_forever()
-    except OSError as exc:
-        logger.warning(
-            "Embedded relay could not bind %s:%s (%s); an external relay may "
-            "already be running. The plugin tools will use that listener.",
-            relay_host(),
-            relay_port(),
-            exc,
-        )
-    except Exception:
-        logger.exception("Embedded relay failed to start")
-    finally:
+    atexit.register(stop_embedded_relay)
+    logger.info("Started Relay sidecar pid=%s on port %s (log %s)", _process.pid, port, log)
+    return _process
+
+
+def stop_embedded_relay() -> None:
+    global _process
+    if _process is None:
+        return
+    if _process.poll() is None:
+        _process.terminate()
         try:
-            if _runner is not None:
-                loop.run_until_complete(_runner.cleanup())
-        except Exception:
-            logger.debug("Embedded relay cleanup failed", exc_info=True)
-        loop.close()
+            _process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _process.kill()
+    _process = None
