@@ -200,23 +200,67 @@ Add-Type -AssemblyName System.Windows.Forms
   async focusWindow(windowId: string): Promise<UiActionResult> {
     const started = Date.now()
     if (!/^\d+$/.test(windowId)) throw new UiError('invalid_request', 'Windows window ids are process ids from desktop_ui_windows.')
-    const script = `$null = (New-Object -ComObject WScript.Shell).AppActivate(${Number(windowId)}); 'ok'`
+    const target = (await this.windows()).find(window => window.id === windowId)
+    if (!target) throw new UiError('window_not_found', `No window with process id ${windowId}.`)
+    const title = target.title.replace(/'/g, "''")
+    // A background task cannot normally call SetForegroundWindow. Attaching to
+    // the foreground thread, raising the target topmost, activating it and
+    // resetting topmost is the sequence Windows actually honours. AppActivate
+    // stays as a fallback for windows without a normal top-level handle.
+    const script = `$p = Get-Process -Id ${Number(windowId)} -ErrorAction Stop
+$h = $p.MainWindowHandle
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class RelayFocus {
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int w, int ht, uint f);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool attach);
+}
+"@
+$ok = $false
+if ($h -ne [IntPtr]::Zero) {
+  $fgp = 0; $fgt = [RelayFocus]::GetWindowThreadProcessId([RelayFocus]::GetForegroundWindow(), [ref]$fgp)
+  $tp = 0; $tt = [RelayFocus]::GetWindowThreadProcessId($h, [ref]$tp)
+  [void][RelayFocus]::ShowWindow($h, 9)
+  [void][RelayFocus]::AttachThreadInput($fgt, $tt, $true)
+  [void][RelayFocus]::BringWindowToTop($h)
+  [void][RelayFocus]::SetWindowPos($h, [IntPtr](-1), 0, 0, 0, 0, 0x0001 -bor 0x0002 -bor 0x0040)
+  $ok = [RelayFocus]::SetForegroundWindow($h)
+  [void][RelayFocus]::AttachThreadInput($fgt, $tt, $false)
+  Start-Sleep -Milliseconds 150
+  [void][RelayFocus]::SetWindowPos($h, [IntPtr](-2), 0, 0, 0, 0, 0x0001 -bor 0x0002)
+}
+if (-not $ok) { $ws = New-Object -ComObject WScript.Shell; try { if ('${title}') { $ok = $ws.AppActivate('${title}') } } catch { $ok = $false } }
+if ($ok) { 'activated' } else { 'failed' }`
     const result = await this.runScript(script)
-    if (result.exitCode !== 0 || !/ok/i.test(result.stdout)) {
-      throw new UiError('input_failed', `AppActivate failed: ${result.stderr.trim().slice(0, 300) || 'window not found'}`)
+    if (result.exitCode !== 0 || !/activated/i.test(result.stdout)) {
+      throw new UiError('input_failed', `AppActivate failed for ${target.app}: ${result.stderr.trim().slice(0, 300) || 'window not found'}`)
     }
+    await new Promise(resolve => setTimeout(resolve, 250))
     const windows = await this.windows()
     const active = windows.find(window => window.id === windowId)
+    if (active?.focused !== true) {
+      const foreground = windows.find(window => window.focused)
+      throw new UiError(
+        'input_failed',
+        `Focus did not move to ${target.app} (${target.title}); foreground is ${foreground ? `${foreground.app} (${foreground.title})` : 'unknown'}. Windows may be blocking a background process from changing the foreground.`
+      )
+    }
     return {
       ok: true,
-      backend: 'powershell+user32',
+      backend: 'powershell+wscript',
       action: 'focus_window',
       performed_at: new Date().toISOString(),
       duration_ms: Date.now() - started,
       verification: {
-        method: 'window_state',
-        ok: active?.focused === true,
-        active_window: active ? { id: active.id, app: active.app, title: active.title } : undefined
+        method: 'active_window',
+        ok: true,
+        active_window: { id: target.id, app: target.app, title: target.title }
       }
     }
   }

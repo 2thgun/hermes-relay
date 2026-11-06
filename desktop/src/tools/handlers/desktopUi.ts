@@ -135,7 +135,21 @@ export const uiScreenshotHandler: ToolHandler = async (args, ctx) => {
   }
   const selection = await selectPlatformAdapter()
   if (selection.adapter.id === 'windows') {
-    return computerScreenshotHandler(args, ctx)
+    const result = (await computerScreenshotHandler(args, ctx)) as Record<string, unknown>
+    if (!result || result.ok !== true) return result
+    const displays = await selection.adapter.displays()
+    const display = displays.find(item => item.focused) ?? displays[0]
+    const captured = (result.display ?? {}) as { width?: number; height?: number }
+    return {
+      ...result,
+      adapter: 'windows',
+      pixel_width: captured.width ?? display?.rect.width,
+      pixel_height: captured.height ?? display?.rect.height,
+      origin: display ? { x: display.rect.x, y: display.rect.y } : { x: 0, y: 0 },
+      scale: display?.scale ?? 1,
+      requested_target: stringArg(args.target) ?? 'display',
+      captured_target: 'display'
+    }
   }
   try {
     const target = stringArg(args.target) ?? 'display'

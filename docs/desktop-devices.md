@@ -201,6 +201,19 @@ helper errors, and refusal to clamp off-layout coordinates.
   the legacy user32 bridge). Drag is reported unavailable rather than
   reimplemented untested.
 
+  **Validated limits (Windows 11, legacy bridge):** Windows refuses
+  `SetForegroundWindow` from a background client. The adapter's AttachThreadInput
+  + topmost + activate sequence can lift the window visually, but the foreground
+  falls back to Explorer and the adapter now returns `input_failed` rather than
+  claiming focus succeeded. Because `desktop_ui_action` type/key target the
+  current foreground, input is not trustworthy on the legacy bridge without a
+  successful focus. Use the CUA backend for Windows input, or treat Windows as
+  file/shell/browser-only. Window-scoped capture falls back to the display and
+  reports `captured_target: "display"`; screenshot metadata now includes
+  `pixel_width`, `pixel_height`, `origin`, and `scale`. Headless Edge browser
+  download returned no file descriptor in validation; treat downloads as
+  unverified on Windows until that path is exercised with a headed profile.
+
 ### Evaluation of Cua Driver and computer-use-linux
 
 Both were evaluated before writing a native lane:
