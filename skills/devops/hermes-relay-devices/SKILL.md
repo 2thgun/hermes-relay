@@ -93,6 +93,12 @@ asked for (file content, window title, page text, downloaded file size).
   it, clicks fall back to `wlrctl` (verified, but known quirks) and drag is
   unavailable. `hermes-relay setup-input` builds it. Keyboard goes to the
   focused window; there is no silent background typing. Screenshots need `grim`.
+  **Hyprland 0.56+** parses `hyprctl dispatch` as Lua: use
+  `hl.dsp.focus({window="address:0x…"})` and `hl.dsp.cursor.move({x=…, y=…})`;
+  the old `focuswindow`/`movecursor` strings fail. Verified on 0.56.2/Omarchy.
+- **Browser** detection includes Helium (`helium-browser`); a Chromium fork that
+  answers 0.56+ still needs CDP like Chrome. `desktop_browser_status` is the
+  truth, not the app menu.
 - **X11**: `xdotool` + ImageMagick/scrot; physical pixels, no Wayland surfaces.
 - **Windows**: window discovery/focus via PowerShell; capture/input go through
   `desktop_computer_*`; drag is not exposed by the compatibility bridge.

@@ -117,6 +117,12 @@ const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
 
 function parseUnifiedDiff(patch: string): Hunk[] {
   const lines = patch.split('\n')
+  // A patch that ends with a newline produces one trailing empty element.
+  // It is not a context line; treating it as one adds a phantom line to the
+  // hunk pre-image and makes every last-line patch fail the range check.
+  if (lines.length > 0 && lines[lines.length - 1] === '') {
+    lines.pop()
+  }
   const hunks: Hunk[] = []
   let i = 0
 

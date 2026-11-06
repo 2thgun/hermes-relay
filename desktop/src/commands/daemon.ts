@@ -1082,6 +1082,7 @@ export async function daemonCommand(args: ParsedArgs): Promise<number> {
     sessionHeader: useSessionHeader,
     broker: brokerRoute,
     autoReconnect: true,
+    attachTui: false,
     ...desktopRelayIdentity()
   })
 

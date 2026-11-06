@@ -186,6 +186,11 @@ export interface RelayTransportConfig {
    * every 5 s (deduped by value). Stopped on `kill()`. Default: false —
    * opt-in via the top-level `--watch-editor` flag. */
   watchEditor?: boolean
+  /** Send `tui.attach` after auth. Default: true — the interactive shell/chat
+   * paths need the server-side TUI gateway. The headless daemon does not, and
+   * attaching would spawn a gateway it never uses (and lose the connection if
+   * that gateway cannot start). */
+  attachTui?: boolean
 }
 
 /**
@@ -750,10 +755,12 @@ export class RelayTransport extends EventEmitter implements Transport {
         }
       }
 
-      this.sendEnvelope('tui', 'tui.attach', {
-        cols: process.stdout.columns ?? 80,
-        rows: process.stdout.rows ?? 24
-      })
+      if (this.cfg.attachTui !== false) {
+        this.sendEnvelope('tui', 'tui.attach', {
+          cols: process.stdout.columns ?? 80,
+          rows: process.stdout.rows ?? 24
+        })
+      }
 
       // Fire-and-forget: advertise the local workspace to the relay so
       // downstream tooling (agent prompt-hook, session stickiness) can

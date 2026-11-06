@@ -152,6 +152,7 @@ export class HyprlandAdapter implements UiAdapter {
   private readonly home: string
   private readonly binaryCache = new Map<string, string | null>()
   private probe: { at: number; environment: UiEnvironment; capabilities: UiCapability[] } | null = null
+  private hyprlandVersion: string | null = null
 
   constructor(deps: HyprlandAdapterDeps = {}) {
     this.platform = deps.platform ?? (process.platform as UiPlatform)
@@ -240,6 +241,7 @@ export class HyprlandAdapter implements UiAdapter {
         const probe = await this.hyprctlJson<{ version?: string; tag?: string }>(['version', '-j'])
         graphical = true
         version = probe.version ?? probe.tag
+        this.hyprlandVersion = version ?? null
       } catch (error) {
         reason = error instanceof Error ? error.message : String(error)
       }
@@ -489,6 +491,23 @@ export class HyprlandAdapter implements UiAdapter {
     }
   }
 
+  /** Hyprland 0.56 replaced string dispatchers with Lua expressions. */
+  private usesLuaDispatchers(): boolean {
+    const match = /^(\d+)\.(\d+)/.exec(this.hyprlandVersion ?? '')
+    if (!match) return false
+    const major = Number(match[1])
+    const minor = Number(match[2])
+    return major > 0 || minor >= 56
+  }
+
+  /** The version probe normally runs in the status heartbeat, but a direct
+   * tool call can arrive first. Probe once before choosing a dispatch syntax. */
+  private async ensureVersionProbed(): Promise<void> {
+    if (this.hyprlandVersion === null) {
+      await this.environment()
+    }
+  }
+
   async focusWindow(windowId: string): Promise<UiActionResult> {
     const started = Date.now()
     const window = await this.findWindow(windowId)
@@ -498,7 +517,10 @@ export class HyprlandAdapter implements UiAdapter {
         `${window.app} (${window.id}) is on a hidden or special workspace; focus it from Hyprland before acting.`
       )
     }
-    const result = await this.hyprctl(['dispatch', 'focuswindow', `address:${window.id}`])
+    await this.ensureVersionProbed()
+    const result = this.usesLuaDispatchers()
+      ? await this.hyprctl(['dispatch', `hl.dsp.focus({window="address:${window.id}"})`])
+      : await this.hyprctl(['dispatch', 'focuswindow', `address:${window.id}`])
     if (result.exitCode !== 0) {
       throw new UiError('input_failed', `focuswindow failed: ${result.stderr.trim() || result.exitCode}`)
     }
@@ -698,7 +720,11 @@ export class HyprlandAdapter implements UiAdapter {
     }
     const hyprctl = await this.resolveBinary('hyprctl')
     if (!hyprctl) throw new UiError('missing_dependency', 'hyprctl is not installed.')
-    const warp = await this.runner.text(hyprctl, ['dispatch', 'movecursor', String(point.x), String(point.y)], { timeoutMs: 6_000 })
+    await this.ensureVersionProbed()
+    const warpArgs = this.usesLuaDispatchers()
+      ? ['dispatch', `hl.dsp.cursor.move({x=${point.x}, y=${point.y}})`]
+      : ['dispatch', 'movecursor', String(point.x), String(point.y)]
+    const warp = await this.runner.text(hyprctl, warpArgs, { timeoutMs: 6_000 })
     if (warp.exitCode !== 0) throw new UiError('input_failed', `movecursor failed: ${warp.stderr.trim() || warp.exitCode}`)
     await new Promise(resolve => setTimeout(resolve, 40))
     const button = request.button ?? 'left'

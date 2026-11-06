@@ -167,6 +167,11 @@ helper errors, and refusal to clamp off-layout coordinates.
 
 ### Known Hyprland limits
 
+- **Hyprland 0.56+ uses Lua dispatchers.** `hyprctl dispatch focuswindow address:0x…`
+  now fails with a Lua parse error; the adapter switches to
+  `hl.dsp.focus({window="address:0x…"})` and
+  `hl.dsp.cursor.move({x=…, y=…})` based on the reported version. Verified on
+  Hyprland 0.56.2 (Omarchy, eDP-1 1440×900 at scale 2).
 - Absolute virtual-pointer motion has multi-monitor bugs
   ([#6749](https://github.com/hyprwm/Hyprland/issues/6749)); the helper sends
   compositor-layout-normalised coordinates and the adapter verifies `cursorpos`
@@ -224,7 +229,9 @@ extra daemon, and uses protocols Hyprland itself ships.
 - **Dedicated profile** at `~/.hermes/browser-profile` (override with
   `HERMES_RELAY_BROWSER_PROFILE`). It never attaches to the user's signed-in
   profile. Downloads go to `<profile>/downloads`, logs to
-  `<profile>/chromium.log`.
+  `<profile>/chromium.log`. Detection includes Chrome, Chromium, Helium
+  (`helium-browser`), Brave, and Edge; Helium 0.21/Chrome 157 was verified as a
+  CDP runtime on Omarchy.
 - **Launch**: `--remote-debugging-port=0` plus the profile; the client reads
   `DevToolsActivePort`. `HERMES_RELAY_BROWSER` selects a binary,
   `HERMES_RELAY_BROWSER_ARGS` adds local flags (e.g. `--no-sandbox` in a
@@ -289,9 +296,12 @@ hermes-relay daemon --status
 ```
 
 Both rely on the transport's existing auto-reconnect (exponential backoff to
-30 s). `daemon --status` now prints the platform adapter, session kind, whether
-a graphical session is reachable, and browser availability, so "why can't the
-agent click?" is answerable without journald.
+30 s). The daemon deliberately does **not** send `tui.attach`: it never uses a
+server-side TUI gateway, and attaching one used to drop the whole desktop
+connection when that gateway could not start. `daemon --status` now prints the
+platform adapter, session kind, whether a graphical session is reachable, and
+browser availability, so "why can't the agent click?" is answerable without
+journald.
 
 ## Testing
 

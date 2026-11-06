@@ -83,13 +83,16 @@ const CLIENTS = [
   }
 ]
 
-function baseResponder(overrides: (call: Call) => Partial<UiCommandResult> | null = () => null) {
+function baseResponder(
+  overrides: (call: Call) => Partial<UiCommandResult> | null = () => null,
+  version = '0.54.3'
+) {
   return (call: Call): Partial<UiCommandResult> & { stdoutBuffer?: Buffer } | null => {
     const override = overrides(call)
     if (override) return override
     const name = call.cmd.split('/').pop()
     if (name === 'hyprctl' && call.args[0] === 'version') {
-      return { stdout: JSON.stringify({ version: '0.54.3', branch: 'main' }) }
+      return { stdout: JSON.stringify({ version, branch: 'main' }) }
     }
     if (name === 'hyprctl' && call.args[0] === 'monitors') {
       return { stdout: JSON.stringify(MONITORS) }
@@ -116,7 +119,11 @@ function baseResponder(overrides: (call: Call) => Partial<UiCommandResult> | nul
   }
 }
 
-function makeAdapter(runner: FakeRunner, available: string[] = ['hyprctl', 'grim', 'wtype', 'wl-input', 'wlrctl']) {
+function makeAdapter(
+  runner: FakeRunner,
+  available: string[] = ['hyprctl', 'grim', 'wtype', 'wl-input', 'wlrctl'],
+  version = '0.54.3'
+) {
   return new HyprlandAdapter({
     runner,
     platform: 'linux',
@@ -131,6 +138,23 @@ function makeAdapter(runner: FakeRunner, available: string[] = ['hyprctl', 'grim
     which: async name => (available.includes(name) ? `/usr/bin/${name}` : null)
   })
 }
+
+test('Hyprland 0.56 uses Lua dispatch for window focus', async () => {
+  const runner = new FakeRunner(baseResponder(undefined, '0.56.2'))
+  const adapter = makeAdapter(runner, undefined, '0.56.2')
+  const result = await adapter.focusWindow('0x55aa11')
+  const dispatch = runner.calls.find(call => call.cmd.endsWith('hyprctl') && call.args[0] === 'dispatch')
+  assert.deepEqual(dispatch?.args[1], 'hl.dsp.focus({window="address:0x55aa11"})')
+  assert.equal(result.verification?.ok, true)
+})
+
+test('Hyprland 0.56 uses Lua dispatch for the wlrctl cursor fallback', async () => {
+  const runner = new FakeRunner(baseResponder(undefined, '0.56.2'))
+  const adapter = makeAdapter(runner, ['hyprctl', 'grim', 'wtype', 'wlrctl'], '0.56.2')
+  await adapter.pointer({ action: 'click', x: 300, y: 200 })
+  const dispatch = runner.calls.find(call => call.cmd.endsWith('hyprctl') && call.args[0] === 'dispatch')
+  assert.deepEqual(dispatch?.args[1], 'hl.dsp.cursor.move({x=300, y=200})')
+})
 
 test('Hyprland reports logical display geometry and scaled coordinates', async () => {
   const runner = new FakeRunner(baseResponder())

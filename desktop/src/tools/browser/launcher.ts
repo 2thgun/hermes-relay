@@ -48,6 +48,8 @@ const LINUX_NAMES = [
   'google-chrome-stable',
   'chromium',
   'chromium-browser',
+  'helium-browser',
+  'helium',
   'brave-browser',
   'microsoft-edge',
   'microsoft-edge-stable'
