@@ -40,7 +40,7 @@ import logging
 import time
 import uuid
 from collections import deque
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from aiohttp import web
@@ -88,6 +88,32 @@ class _ControlSessionRecord:
     target_ws: web.WebSocketResponse
     target_device_id: str
     expiry_task: asyncio.Task[None]
+
+
+@dataclass(frozen=True)
+class KnownDevice:
+    """Last observed identity for a desktop client, online or offline.
+
+    Stable ``device_id`` is the ownership key. Name/platform/capabilities are
+    display metadata and may change between reconnects. Records are kept in
+    memory only: a relay restart loses history, but never invents a target.
+    """
+
+    device_id: str
+    name: str
+    platform: str | None
+    adapter: str | None
+    session: str | None
+    graphical: bool | None
+    capabilities: dict[str, Any]
+    advertised_tools: tuple[str, ...]
+    last_seen_at: float
+    online: bool
+
+
+_PIN_TTL_SECONDS = 12 * 3600.0
+_PIN_MAX_ENTRIES = 256
+_KNOWN_DEVICE_MAX_ENTRIES = 32
 
 
 def _redact_args(value: Any) -> Any:
@@ -223,6 +249,14 @@ class DesktopHandler:
         # only trusted context fields; this handler always owns the id and
         # binds every emitted identity to the selected target + request id.
         self._control_sessions: dict[tuple[str, str, str, str, str], _ControlSessionRecord] = {}
+
+        # Last-seen directory for explicit offline errors and capability
+        # discovery. Bounded; never used to satisfy a dispatch by itself.
+        self._known_devices: dict[str, KnownDevice] = {}
+        # (profile, chat_session_id) → (device_id, pinned_at). A task that
+        # explicitly selected a device keeps targeting it; if it goes offline
+        # the call fails instead of silently moving to another computer.
+        self._pins: dict[tuple[str, str], tuple[str, float]] = {}
 
     async def _send_control_session_end(
         self,
@@ -454,6 +488,191 @@ class DesktopHandler:
     def _connected_targets(self) -> list[tuple[web.WebSocketResponse, DesktopSession]]:
         return [(ws, session) for ws, session in self._sessions.items() if not ws.closed]
 
+    # ── Device directory / targeting pins ────────────────────────────────
+
+    @staticmethod
+    def _device_key(session: DesktopSession) -> str:
+        """Stable ownership key. Never the display name."""
+        for candidate in (
+            session.authenticated_device_id,
+            session.device_id,
+            session.client_status.get("device_id"),
+        ):
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        return ""
+
+    @staticmethod
+    def _capability_payload(session: DesktopSession) -> dict[str, Any]:
+        value = session.client_status.get("capabilities")
+        return dict(value) if isinstance(value, dict) else {}
+
+    @classmethod
+    def _capability_summary(cls, session: DesktopSession) -> dict[str, Any]:
+        caps = cls._capability_payload(session)
+        available: list[str] = []
+        unavailable: list[dict[str, Any]] = []
+        raw_items = caps.get("capabilities")
+        if isinstance(raw_items, list):
+            for item in raw_items:
+                if not isinstance(item, dict):
+                    continue
+                capability_id = item.get("id")
+                if not isinstance(capability_id, str) or not capability_id:
+                    continue
+                if item.get("available") is True:
+                    available.append(capability_id)
+                else:
+                    reason = item.get("reason")
+                    unavailable.append(
+                        {
+                            "id": capability_id,
+                            **({"reason": reason} if isinstance(reason, str) and reason else {}),
+                        }
+                    )
+        browser = caps.get("browser")
+        return {
+            "adapter": caps.get("adapter"),
+            "platform": caps.get("platform") or session.client_status.get("platform"),
+            "session": caps.get("session"),
+            "compositor": caps.get("compositor"),
+            "graphical": caps.get("graphical"),
+            "reason": caps.get("reason"),
+            "available": sorted(set(available)),
+            "unavailable": unavailable,
+            "dependencies": caps.get("dependencies"),
+            "browser": browser if isinstance(browser, dict) else None,
+            "warnings": caps.get("warnings"),
+        }
+
+    def _observe_device(self, session: DesktopSession) -> None:
+        key = self._device_key(session)
+        if not key:
+            return
+        summary = self._capability_summary(session)
+        name = (
+            session.device_name
+            or str(session.client_status.get("device_name") or "").strip()
+            or str(session.client_status.get("host") or "").strip()
+            or key
+        )
+        record = KnownDevice(
+            device_id=key,
+            name=name,
+            platform=summary.get("platform") if isinstance(summary.get("platform"), str) else None,
+            adapter=summary.get("adapter") if isinstance(summary.get("adapter"), str) else None,
+            session=summary.get("session") if isinstance(summary.get("session"), str) else None,
+            graphical=summary.get("graphical") if isinstance(summary.get("graphical"), bool) else None,
+            capabilities=summary,
+            advertised_tools=tuple(sorted(session.advertised_tools)),
+            last_seen_at=time.time(),
+            online=True,
+        )
+        self._known_devices[key] = record
+        if len(self._known_devices) > _KNOWN_DEVICE_MAX_ENTRIES:
+            oldest = sorted(
+                self._known_devices.values(), key=lambda item: item.last_seen_at
+            )[0]
+            if oldest.device_id != key:
+                self._known_devices.pop(oldest.device_id, None)
+
+    def _mark_offline(self, session: DesktopSession) -> None:
+        key = self._device_key(session)
+        record = self._known_devices.get(key)
+        if record is None:
+            return
+        self._known_devices[key] = replace(
+            record, online=False, last_seen_at=max(record.last_seen_at, time.time() - 1.0)
+        )
+
+    def _offline_hint(self, device_id: str) -> str:
+        record = self._known_devices.get(device_id)
+        if record is None:
+            return ""
+        age = max(0, int(time.time() - record.last_seen_at))
+        return f" Known device {record.name!r} ({device_id}) is offline; last seen {age}s ago."
+
+    def devices_snapshot(self) -> dict[str, Any]:
+        online: list[dict[str, Any]] = []
+        online_ids: set[str] = set()
+        for _, session in self._connected_targets():
+            key = self._device_key(session)
+            if key:
+                online_ids.add(key)
+            summary = self._capability_summary(session)
+            online.append(
+                {
+                    "device_id": key or None,
+                    "authenticated_device_id": session.authenticated_device_id,
+                    "name": session.device_name
+                    or session.client_status.get("host")
+                    or key
+                    or "desktop",
+                    "online": True,
+                    "platform": summary.get("platform"),
+                    "adapter": summary.get("adapter"),
+                    "session": summary.get("session"),
+                    "graphical": summary.get("graphical"),
+                    "capabilities": summary,
+                    "advertised_tools": sorted(session.advertised_tools),
+                    "last_seen_at": session.last_seen_at,
+                }
+            )
+        offline = [
+            {
+                "device_id": record.device_id,
+                "authenticated_device_id": record.device_id,
+                "name": record.name,
+                "online": False,
+                "platform": record.platform,
+                "adapter": record.adapter,
+                "session": record.session,
+                "graphical": record.graphical,
+                "capabilities": record.capabilities,
+                "advertised_tools": list(record.advertised_tools),
+                "last_seen_at": record.last_seen_at,
+                "last_seen_age_s": max(0, int(time.time() - record.last_seen_at)),
+            }
+            for record in self._known_devices.values()
+            if record.device_id not in online_ids
+        ]
+        offline.sort(key=lambda row: row["last_seen_at"], reverse=True)
+        return {
+            "connected": bool(online),
+            "online_count": len(online),
+            "devices": online + offline,
+        }
+
+    @staticmethod
+    def _pin_key(requester: DesktopRequesterContext) -> tuple[str, str]:
+        return (requester.profile or "default", requester.chat_session_id or "")
+
+    def _pin_for(self, requester: DesktopRequesterContext | None) -> str | None:
+        if requester is None or not requester.chat_session_id:
+            return None
+        key = self._pin_key(requester)
+        entry = self._pins.get(key)
+        if entry is None:
+            return None
+        device_id, pinned_at = entry
+        if time.time() - pinned_at > _PIN_TTL_SECONDS:
+            self._pins.pop(key, None)
+            return None
+        return device_id
+
+    def _set_pin(self, requester: DesktopRequesterContext | None, device_id: str) -> None:
+        if requester is None or not requester.chat_session_id or not device_id:
+            return
+        now = time.time()
+        if len(self._pins) >= _PIN_MAX_ENTRIES:
+            for key, (_, pinned_at) in list(self._pins.items()):
+                if now - pinned_at > _PIN_TTL_SECONDS:
+                    self._pins.pop(key, None)
+            if len(self._pins) >= _PIN_MAX_ENTRIES:
+                oldest = min(self._pins.items(), key=lambda item: item[1][1])[0]
+                self._pins.pop(oldest, None)
+        self._pins[self._pin_key(requester)] = (device_id, now)
+
     @staticmethod
     def _normalized_selector(value: str) -> str:
         return "".join(ch for ch in value.casefold() if ch.isalnum())
@@ -472,7 +691,11 @@ class DesktopHandler:
             matches = [(ws, session) for ws, session in targets
                        if session.authenticated_device_id == device_id]
             if not matches:
-                raise DesktopError(f"No connected desktop with authenticated device_id {device_id!r}")
+                raise DesktopError(
+                    f"No connected desktop with authenticated device_id {device_id!r}."
+                    + self._offline_hint(device_id)
+                    + self._online_targets_hint()
+                )
             if len(matches) != 1:
                 raise DesktopError(f"Duplicate authenticated desktop device_id {device_id!r}")
             if selector is not None:
@@ -510,8 +733,23 @@ class DesktopHandler:
                     or session.device_id
                     for _, session in targets
                 ]
+                offline_matches = [
+                    record
+                    for record in self._known_devices.values()
+                    if not record.online
+                    and (
+                        self._normalized_selector(record.name) == normalized
+                        or self._normalized_selector(record.device_id) == normalized
+                    )
+                ]
+                hint = (
+                    f" Known device {offline_matches[0].name!r} "
+                    f"({offline_matches[0].device_id}) is offline."
+                    if offline_matches
+                    else ""
+                )
                 raise DesktopError(
-                    f"Unknown desktop device selector {raw!r}. Available: "
+                    f"Unknown desktop device selector {raw!r}.{hint} Available: "
                     f"{', '.join(filter(None, available)) or 'none'}"
                 )
             if len(matches) > 1:
@@ -536,9 +774,23 @@ class DesktopHandler:
         ws = self.client_ws
         if ws is not None and not ws.closed:
             return ws, self._sessions.get(ws)
+        known = [record for record in self._known_devices.values() if not record.online]
+        hint = ""
+        if known:
+            hint = " Known devices (offline): " + ", ".join(
+                f"{record.name} ({record.device_id})" for record in known[:5]
+            )
         raise DesktopError(
-            "No desktop client connected. Start the Hermes desktop CLI and pair it."
+            "No desktop client connected. Start the Hermes desktop CLI and pair it." + hint
         )
+
+    def _online_targets_hint(self) -> str:
+        rows = []
+        for _, session in self._connected_targets():
+            key = self._device_key(session)
+            if key:
+                rows.append(f"{session.device_name or key} ({key})")
+        return " Online: " + ", ".join(rows) if rows else " No desktop clients are online."
 
     # ── Outbound commands (called from HTTP handlers) ────────────────────
 
@@ -562,7 +814,20 @@ class DesktopHandler:
         ``device_id`` must exactly match one authenticated connection; heartbeat
         claims, names and the sole-client fallback cannot satisfy it.
         """
-        ws, target_session = self._resolve_target(device, device_id=device_id)
+        explicit_selection = device is not None or device_id is not _DEVICE_ID_UNSET
+        pinned = None if explicit_selection else self._pin_for(requester)
+        if pinned is not None:
+            try:
+                ws, target_session = self._resolve_target(None, device_id=pinned)
+            except DesktopError as exc:
+                raise DesktopError(
+                    "This conversation is pinned to desktop device_id "
+                    f"{pinned!r}; it will not switch to another computer. {exc}"
+                ) from exc
+        else:
+            ws, target_session = self._resolve_target(device, device_id=device_id)
+            if explicit_selection and target_session is not None:
+                self._set_pin(requester, self._device_key(target_session))
         target_tools = (
             target_session.advertised_tools
             if target_session is not None
@@ -780,6 +1045,7 @@ class DesktopHandler:
             session.client_status = dict(self.client_status)
             session.last_seen_at = self.last_seen_at
             session.advertised_tools = set(self.advertised_tools)
+            self._observe_device(session)
 
         logger.debug(
             "desktop: status update advertised=%d keys=%s",
@@ -823,12 +1089,14 @@ class DesktopHandler:
 
     def status_snapshot(self) -> dict[str, Any]:
         """Dict suitable for ``/desktop/_ping`` and diagnostics."""
+        targets = self._connected_targets()
         return {
-            "connected": self.is_client_connected(),
+            "connected": bool(targets),
             "advertised_tools": sorted(self.advertised_tools),
             "client_status": dict(self.client_status),
             "last_seen_at": self.last_seen_at,
             "pending_commands": len(self.pending),
+            "devices": self.devices_snapshot()["devices"],
             "clients": [
                 {
                     "device_id": session.device_id or session.client_status.get("device_id"),
@@ -838,10 +1106,13 @@ class DesktopHandler:
                         or session.client_status.get("device_name")
                         or session.client_status.get("host")
                     ),
+                    "platform": session.client_status.get("platform"),
+                    "adapter": self._capability_summary(session).get("adapter"),
+                    "capabilities": self._capability_summary(session),
                     "advertised_tools": sorted(session.advertised_tools),
                     "last_seen_at": session.last_seen_at,
                 }
-                for _, session in self._connected_targets()
+                for _, session in targets
             ],
         }
 
@@ -909,6 +1180,8 @@ class DesktopHandler:
         # Workspace cleanup first (so detach is observable even if the
         # ws was never latched as the tool-routing client).
         session = self._sessions.pop(ws, None)
+        if session is not None:
+            self._mark_offline(session)
         if session is not None and session.workspace_context is not None:
             logger.debug(
                 "desktop: session detached (had workspace from %s)",

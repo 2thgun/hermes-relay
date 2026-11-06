@@ -185,7 +185,7 @@ class DesktopStrictIdTests(unittest.IsolatedAsyncioTestCase):
     async def test_every_client_schema_exposes_strict_id_without_changing_health(self) -> None:
         for tool, schema in desktop_tool._SCHEMAS.items():
             properties = schema["parameters"]["properties"]
-            if tool == "desktop_health":
+            if tool in desktop_tool._RELAY_ONLY_TOOLS:
                 self.assertNotIn("device_id", properties)
             else:
                 self.assertEqual(properties["device_id"]["type"], "string")

@@ -1421,10 +1421,24 @@ async def handle_desktop_health(request: web.Request) -> web.Response:
         "interactive": cs.get("interactive"),
         "last_error": cs.get("last_error"),
         "computer_use": cs.get("computer_use"),
+        "capabilities": cs.get("capabilities"),
         "clients": snap.get("clients") or [],
+        "devices": snap.get("devices") or [],
         "recent_commands": server.desktop.get_recent(limit=20),
     }
     return web.json_response(out)
+
+
+async def handle_desktop_devices(request: web.Request) -> web.Response:
+    """GET /desktop/devices
+
+    Stable device directory: every online client with capability details, plus
+    recently seen offline devices. Offline rows are informational only; a
+    dispatch to one still fails closed. Loopback-only, like /desktop/health.
+    """
+    _require_loopback(request)
+    server: RelayServer = request.app["server"]
+    return web.json_response(server.desktop.devices_snapshot())
 
 
 async def handle_desktop_dispatch(request: web.Request) -> web.Response:
@@ -4933,6 +4947,7 @@ def create_app(config: RelayConfig) -> web.Application:
     # plus the recent-commands ring. Like `_ping`, it must come before the
     # wildcard route or aiohttp swallows it.
     app.router.add_get("/desktop/health", handle_desktop_health)
+    app.router.add_get("/desktop/devices", handle_desktop_devices)
     app.router.add_post("/desktop/{tool_name}", handle_desktop_dispatch)
 
     # Clipboard inbox — remote-client paste rendezvous for the upstream

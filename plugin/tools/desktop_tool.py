@@ -80,6 +80,9 @@ from typing import Any, Optional
 
 import requests
 
+from .desktop_ui_tools import _HANDLERS as _UI_HANDLERS
+from .desktop_ui_tools import _SCHEMAS as _UI_SCHEMAS
+
 
 @dataclass(frozen=True)
 class _DesktopTarget:
@@ -1562,6 +1565,11 @@ _HANDLERS: dict[str, Any] = {
     "desktop_computer_cancel":        lambda args, **kw: desktop_computer_cancel(**args),
 }
 
+# Platform-neutral UI / browser / device-directory tools live in their own
+# module so the upstream desktop tool surface stays readable.
+_SCHEMAS.update(_UI_SCHEMAS)
+_HANDLERS.update(_UI_HANDLERS)
+
 
 def _targeted_handler(handler: Any) -> Any:
     """Consume the relay-only device selector before calling a tool function."""
@@ -1640,9 +1648,27 @@ _TOOL_CAPABILITIES = {
     "desktop_computer_action": "input.control",
     "desktop_computer_grant_request": "permissions.request",
     "desktop_computer_cancel": "permissions.revoke",
+    # Platform-neutral UI surface.
+    "desktop_ui_status": "screen.observe",
+    "desktop_ui_windows": "screen.observe",
+    "desktop_ui_screenshot": "screen.observe",
+    "desktop_ui_action": "input.control",
+    # Browser automation: inspection is observation, interaction is control.
+    "desktop_browser_status": "screen.observe",
+    "desktop_browser_inspect": "screen.observe",
+    "desktop_browser_screenshot": "screen.observe",
+    "desktop_browser_open": "input.control",
+    "desktop_browser_click": "input.control",
+    "desktop_browser_type": "input.control",
+    "desktop_browser_key": "input.control",
+    "desktop_browser_scroll": "input.control",
+    "desktop_browser_upload": "input.control",
+    "desktop_browser_download": "input.control",
+    "desktop_browser_wait": "screen.observe",
+    "desktop_browser_close": "input.control",
 }
 for _tool_name, _schema in _SCHEMAS.items():
-    if _tool_name == "desktop_health":
+    if _tool_name in {"desktop_health", "desktop_devices"}:
         continue
     _parameters = _schema.get("parameters")
     if isinstance(_parameters, dict):
@@ -1666,7 +1692,7 @@ for _tool_name, _schema in _SCHEMAS.items():
 # Tools whose check_fn should ping the relay rather than a specific client tool.
 # desktop_health is callable even with no client connected — the whole point is
 # to *report* whether one is connected — so it must not gate on `_check_tool`.
-_RELAY_ONLY_TOOLS: frozenset[str] = frozenset({"desktop_health"})
+_RELAY_ONLY_TOOLS: frozenset[str] = frozenset({"desktop_health", "desktop_devices"})
 
 
 # ── Registry registration ──────────────────────────────────────────────────────
