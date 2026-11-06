@@ -147,6 +147,9 @@ export const uiScreenshotHandler: ToolHandler = async (args, ctx) => {
       pixel_height: captured.height ?? display?.rect.height,
       origin: display ? { x: display.rect.x, y: display.rect.y } : { x: 0, y: 0 },
       scale: display?.scale ?? 1,
+      dpi_scale: display?.dpi_scale ?? 1,
+      physical_width: display?.physical_width,
+      physical_height: display?.physical_height,
       requested_target: stringArg(args.target) ?? 'display',
       captured_target: 'display'
     }

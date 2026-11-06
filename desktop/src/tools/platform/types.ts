@@ -42,11 +42,17 @@ export interface UiDisplay {
   id: string
   name: string
   rect: UiRect
-  /** Logical scale factor (Hyprland `scale`). 1 for X11 and Windows. */
+  /** Logical scale factor (Hyprland `scale`). 1 for X11; Windows reports the
+   * capture factor here and the OS DPI separately in `dpi_scale`. */
   scale: number
   primary: boolean
   focused?: boolean
   transform?: number
+  /** Physical panel pixels, when the OS exposes them separately (Windows). */
+  physical_width?: number
+  physical_height?: number
+  /** OS DPI scale: 1.5 at 150%, 1 at 100%. */
+  dpi_scale?: number
 }
 
 export interface UiWindow {

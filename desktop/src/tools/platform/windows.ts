@@ -148,12 +148,37 @@ export class WindowsAdapter implements UiAdapter {
   async displays(): Promise<UiDisplay[]> {
     const script = `
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class RelayDisplay {
+  [DllImport("user32.dll")] public static extern IntPtr GetDesktopWindow();
+  [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+  [DllImport("Shcore.dll")] public static extern int GetDpiForMonitor(IntPtr h, int dpiType, out uint dpiX, out uint dpiY);
+}
+"@
+$dpi = 96
+try {
+  $mon = [RelayDisplay]::MonitorFromWindow([RelayDisplay]::GetDesktopWindow(), 1)
+  $dx = 0; $dy = 0
+  [void][RelayDisplay]::GetDpiForMonitor($mon, 0, [ref]$dx, [ref]$dy)
+  if ($dx -gt 0) { $dpi = $dx }
+} catch {}
+$vc = Get-CimInstance Win32_VideoController | Select-Object -First 1
 [System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
-  [pscustomobject]@{ name = $_.DeviceName; primary = $_.Primary; x = $_.Bounds.X; y = $_.Bounds.Y; width = $_.Bounds.Width; height = $_.Bounds.Height }
+  [pscustomobject]@{
+    name = $_.DeviceName; primary = $_.Primary; x = $_.Bounds.X; y = $_.Bounds.Y;
+    width = $_.Bounds.Width; height = $_.Bounds.Height;
+    physical_width = $vc.CurrentHorizontalResolution; physical_height = $vc.CurrentVerticalResolution;
+    dpi = $dpi
+  }
 } | ConvertTo-Json -Compress
 `.trim()
     const result = await this.runScript(script)
-    const parsed = parseJson<Array<{ name?: string; primary?: boolean; x?: number; y?: number; width?: number; height?: number }> | { name?: string; primary?: boolean; x?: number; y?: number; width?: number; height?: number }>(result.stdout)
+    const parsed = parseJson<
+      | Array<{ name?: string; primary?: boolean; x?: number; y?: number; width?: number; height?: number; physical_width?: number; physical_height?: number; dpi?: number }>
+      | { name?: string; primary?: boolean; x?: number; y?: number; width?: number; height?: number; physical_width?: number; physical_height?: number; dpi?: number }
+    >(result.stdout)
     if (!parsed) throw new UiError('compositor_error', 'Could not read Windows display geometry.')
     const rows = Array.isArray(parsed) ? parsed : [parsed]
     return rows.map((row, index) => ({
@@ -166,6 +191,14 @@ Add-Type -AssemblyName System.Windows.Forms
         height: Math.round(row.height ?? 0)
       },
       scale: 1,
+      dpi_scale:
+        typeof row.physical_width === 'number' && row.physical_width > 0 && typeof row.width === 'number' && row.width > 0
+          ? Number((row.physical_width / row.width).toFixed(2))
+          : typeof row.dpi === 'number' && row.dpi > 0
+            ? Number((row.dpi / 96).toFixed(2))
+            : 1,
+      physical_width: typeof row.physical_width === 'number' && row.physical_width > 0 ? Math.round(row.physical_width) : undefined,
+      physical_height: typeof row.physical_height === 'number' && row.physical_height > 0 ? Math.round(row.physical_height) : undefined,
       primary: row.primary === true,
       focused: row.primary === true
     }))

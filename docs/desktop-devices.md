@@ -210,7 +210,7 @@ helper errors, and refusal to clamp off-layout coordinates.
   successful focus. Use the CUA backend for Windows input, or treat Windows as
   file/shell/browser-only. Window-scoped capture falls back to the display and
   reports `captured_target: "display"`; screenshot metadata now includes
-  `pixel_width`, `pixel_height`, `origin`, and `scale`. Headless Edge browser
+  `pixel_width`, `pixel_height`, `origin`, `scale`, `dpi_scale`, `physical_width`, and `physical_height`. Headless Edge browser
   download returned no file descriptor in validation; treat downloads as
   unverified on Windows until that path is exercised with a headed profile.
 
