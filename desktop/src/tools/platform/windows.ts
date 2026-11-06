@@ -38,6 +38,7 @@ interface WindowsWindowRow {
   y?: number
   width?: number
   height?: number
+  focused?: boolean
 }
 
 const WINDOW_SCRIPT = `
@@ -191,7 +192,7 @@ Add-Type -AssemblyName System.Windows.Forms
           width: Math.round(row.width ?? 0),
           height: Math.round(row.height ?? 0)
         },
-        focused: false,
+        focused: row.focused === true,
         visible: true
       }))
   }
@@ -214,7 +215,7 @@ Add-Type -AssemblyName System.Windows.Forms
       duration_ms: Date.now() - started,
       verification: {
         method: 'window_state',
-        ok: active ? true : null,
+        ok: active?.focused === true,
         active_window: active ? { id: active.id, app: active.app, title: active.title } : undefined
       }
     }
