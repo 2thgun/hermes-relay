@@ -1663,3 +1663,39 @@ Follow-ups:
   - `**attention` one-shot (only deferred behavior).** A reaction on notification arrival — needs a host event the avatar doesn't yet receive (unlike `greet`/`done`, which ride state transitions). Would plumb a notification edge into `AvatarRenderState` (or a side channel) + a `PetOneShot.Attention`. Low priority: the avatar is rarely on-screen when notifications land (backgrounded) — see the value analysis; revisit only if the avatar becomes an always-on surface (persistent overlay / Quest port).
   - **On-device verification (working + one-shots + intensity).** Use the normal Chat background visualization, which receives `toolCallBurst`, `streamingIntensity`, and state transitions. Confirm: a `working` clip swaps in during a tool run and releases ~600ms after (`WORKING_BURST_THRESHOLD` 0.5); a `done` clip plays once on reply completion then returns to idle; a `greet` clip plays once when the avatar appears; with `intensity:true`, a writing/working loop visibly quickens while streaming. Confirm each decoded clip swap holds the previous complete visual until the new state is ready.
 - **Undecodable-but-present image appears valid (audit 2026-06-19).** A file that exists but isn't a decodable image passes the loader's `isFile` check, so the pet shows in the picker but renders blank. Documented as a caveat; consider a cheap header sniff at load time if false-valid pets become a support issue.
+
+## Paired computers — Linux/Windows adapters (fork, 2026-11-06)
+
+Shipped in this fork: Hyprland/X11 adapters, CDP browser automation, device
+directory with offline memory and conversation pinning, `wl-input` helper,
+`setup-input`, login service installers, and the `hermes-relay-devices` skill.
+See [desktop-devices.md](../desktop-devices.md).
+
+- **Real Hyprland matrix.** The prototype ran on sway's wlroots backend (same
+  protocol family). Verify on Hyprland 0.5x/Omarchy: fractional scale, three
+  monitors with negative origins, special workspaces, touchpad-emulated scroll,
+  and a real drag between two apps. Record the exact versions.
+- **Live Windows validation.** Window enumeration/focus on Windows 11, the
+  `desktop_ui_*` → `desktop_computer_*` delegation, and the logon Scheduled
+  Task under a passwordless login. Windows drag stays unavailable until a
+  structured CUA action proves it.
+- **Cua Driver as an optional Linux backend.** Its Linux target is maturing and
+  would bring structured window actions. Add it behind the adapter interface
+  only when its Linux input path stops being opt-in; keep the no-daemon path as
+  the default.
+- **computer-use-linux semantic layer.** AT-SPI selectors would make GTK/Qt
+  controls addressable by name. Treat it as an optional observation source, not
+  the default input backend (uinput/portal dependency).
+- **Browser follow-ups.** Opt-in attach to an existing signed-in profile
+  (explicit, per-profile), iframe/shadow-DOM ref traversal, native download
+  begin/progress events instead of directory polling, and extension-free PDF
+  handling.
+- **X11 precision.** Mixed-DPI X11 layouts report physical pixels only; add
+  per-monitor XRandR scale mapping before claiming precise clicks there.
+- **Offline directory persistence.** Remembered devices are in-memory and vanish
+  on relay restart. Persist a bounded, privacy-reviewed list if operators want
+  offline diagnosis across restarts.
+- **Discord milestone run.** The tool surface is channel-agnostic; run the
+  read/edit/command/browser/desktop sequence from a real Discord conversation
+  once the plugin is deployed, including disconnect, denied grant, and
+  unavailable-capability cases.

@@ -238,6 +238,27 @@ bundled or updated automatically, but the local CLI/UI can explicitly install,
 check, or update its verified canonical package. It is never exposed as a raw
 remote tool surface. See the [desktop tools guide](https://hermes-relay.dev/docs/desktop/tools.html#computer-use-engines).
 
+**Paired computers — Windows and Linux (this fork).** The same client now
+exposes a platform-neutral `desktop_ui_*` and `desktop_browser_*` surface:
+window discovery/focus, screenshots with an exact coordinate contract, pointer
+and keyboard actions with verification, and CDP browser automation in a
+dedicated profile. Linux sessions use a Hyprland adapter (`hyprctl` + `grim` +
+`wtype` + a small `wl-input` virtual-pointer helper for atomic clicks/drag) or
+an X11 adapter (`xdotool`); Windows keeps its shipped CUA/legacy path.
+`desktop_devices` lists stable device ids, readable names, online/offline state,
+and capability reasons. An explicitly selected device is pinned for the
+conversation and never silently replaced. Login services get a background
+client without leaving the graphical session:
+
+```bash
+hermes-relay setup-input                  # Linux/Wayland: build the pointer helper
+desktop/scripts/install-service-linux.sh  # systemd user unit at graphical login
+hermes-relay daemon --status              # adapter, session, capabilities, browser
+```
+
+See [paired computers and device targeting](docs/desktop-devices.md) and the
+`hermes-relay-devices` skill.
+
 - **Docs:** [CLI guide](https://hermes-relay.dev/docs/desktop/) · [`desktop/README.md`](desktop/README.md)
 - **AI-agent setup recipe:** `/hermes-relay-desktop-setup`
 

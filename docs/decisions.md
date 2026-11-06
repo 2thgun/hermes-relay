@@ -4560,3 +4560,35 @@ vault or display-installation interfaces. Those requests receive `-32601`.
 Legacy notification fixtures remain separate from current upstream scenarios.
 The current contract has both source checks and provider-free execution against
 an unmodified pinned upstream request registry.
+
+## ADR 78 — Paired-computer adapters and explicit device targeting
+
+**Status:** Accepted (2026-11-06). Fork scope: one server-hosted agent operating
+a paired Windows or Linux computer.
+
+Desktop control is split behind a small adapter interface
+(`desktop/src/tools/platform/`). The relay's `desktop.command` envelope, auth,
+control-session binding, grants, audit, and cancellation remain authoritative;
+adapters only translate a bounded observation or input request into local
+mechanism. Linux uses Hyprland (`hyprctl`, `grim`, `wtype`, and a
+`zwlr_virtual_pointer_v1` helper) or X11 (`xdotool`). Windows keeps the shipped
+CUA/legacy path and reports drag as unavailable rather than adding a second
+input stack. This is deliberately not a new agent daemon and not a portal/uinput
+dependency: Hyprland's portal has no RemoteDesktop implementation, and uinput
+requires privileges the user may not have.
+
+Pointer input on Hyprland needs a native helper because `wlrctl` cannot express
+button-down/up or drag, and absolute virtual-pointer motion has compositor bugs.
+The helper is optional and capability-gated; the fallback is verified and
+reported. Keyboard input stays in `wtype` for XKB/unicode correctness. Browser
+automation uses CDP against a dedicated profile, never the user's signed-in
+profile, and gates interaction on the same assist/control grant as desktop
+input.
+
+Targeting is fail-closed. A client's stable `device_id` is the ownership key;
+names are convenience matching with ambiguity errors. An explicit selection pins
+the conversation to that device id for 12 hours, and an offline pin fails with
+its identity and last-seen age instead of falling back to another connected
+computer. A sole connected client may still be auto-selected, preserving
+single-machine ergonomics without turning a failed selector into a redirect.
+Offline devices are remembered in memory for diagnosis only.
