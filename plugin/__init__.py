@@ -128,6 +128,16 @@ def register(ctx):
         except Exception:
             logger.debug("Relay plugin-load enhancements failed; continuing", exc_info=True)
 
+    # Run the relay server inside this plugin process. A separately installed
+    # systemd unit is still honoured: if the port is already bound, the
+    # embedded listener logs and yields to it.
+    try:
+        from .relay.embedded import start_embedded_relay
+
+        start_embedded_relay()
+    except Exception:
+        logger.warning("Embedded relay startup failed; continuing", exc_info=True)
+
     # Register plugin-native CLI sub-commands: hermes pair + hermes relay.
     # Wrapped in try/except so the plugin still works on older hermes-agent
     # versions that do not expose register_cli_command.
