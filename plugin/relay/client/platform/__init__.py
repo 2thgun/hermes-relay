@@ -2,7 +2,8 @@
 
 Selection is driven by the *session environment*, never by the OS alone: a
 Linux host can be running Wayland/Hyprland, a plain X11 desktop, or no
-graphical session reachable from the service at all.  The explicit
+graphical session reachable from the service at all, while Windows always
+needs a logged-in interactive session for user32 and PowerShell.  The explicit
 ``HERMES_RELAY_DESKTOP_BACKEND`` override (or the ``kind=`` argument) wins, as
 in the TypeScript client.
 
@@ -33,6 +34,7 @@ from .base import (
 from .command import CommandRunner
 from .linux_hyprland import HyprlandAdapter
 from .linux_x11 import X11Adapter
+from .windows import WindowsAdapter
 
 AdapterKind = str
 
@@ -131,6 +133,20 @@ def _make_x11(
     )
 
 
+def _make_windows(
+    env: Mapping[str, str],
+    platform: str,
+    runner: CommandRunner | None,
+    which: Callable[[str], str | None] | None,
+) -> WindowsAdapter:
+    return WindowsAdapter(
+        runner=runner,
+        env=env,
+        platform=platform,
+        which=which,
+    )
+
+
 async def select_platform_adapter(
     *,
     kind: AdapterKind = "auto",
@@ -169,14 +185,13 @@ async def select_platform_adapter(
 
     if override == "windows" or (override == "auto" and platform == "win32"):
         selection = AdapterSelection(
-            UnsupportedAdapter(
-                platform,
-                "Windows desktop automation is not implemented in the Python "
-                "client yet.",
-                kind="windows",
-            ),
+            _make_windows(environment, platform, runner, which),
             "windows",
-            "windows session (unsupported in this Python phase)",
+            (
+                "win32 platform"
+                if platform == "win32"
+                else "explicit Windows selection"
+            ),
         )
     elif override == "x11":
         selection = AdapterSelection(
@@ -258,6 +273,7 @@ def reset_platform_adapter_for_tests() -> None:
 __all__ = [
     "AdapterSelection",
     "UnsupportedAdapter",
+    "WindowsAdapter",
     "reset_platform_adapter_for_tests",
     "select_platform_adapter",
 ]

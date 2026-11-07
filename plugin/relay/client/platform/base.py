@@ -1,8 +1,9 @@
-"""Platform-adapter contract for Linux desktop observation and input.
+"""Platform-adapter contract for desktop observation and input.
 
 The relay's ``desktop_ui_*`` tools are platform-neutral at the model boundary.
-This module defines the small internal interface every Linux adapter implements
-so the tool handlers never need to know whether a session is Hyprland or X11:
+This module defines the small internal interface every graphical adapter
+(Hyprland, X11, Windows) implements so the tool handlers never need to know
+which session they are talking to:
 
     handlers/desktop_ui.py  ->  platform.select_platform_adapter()  ->  adapter
 
@@ -107,6 +108,16 @@ class UiDisplay:
     primary: bool = False
     focused: bool = False
     transform: int = 0
+    # Windows exposes the panel pixels and the OS DPI scale separately from the
+    # logical desktop rect; other platforms leave these unset.  ``dpi_scale``
+    # defaults to ``scale`` so the coordinate contract stays coherent.
+    physical_width: int | None = None
+    physical_height: int | None = None
+    dpi_scale: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.dpi_scale is None:
+            self.dpi_scale = self.scale
 
 
 @dataclass
@@ -159,6 +170,15 @@ class UiCapture:
     bytes_base64: str | None = None
     saved_path: str | None = None
     warnings: list[str] = field(default_factory=list)
+    # Present when the platform can report the source panel separately from the
+    # captured image (Windows).  ``dpi_scale`` defaults to ``scale``.
+    dpi_scale: float | None = None
+    physical_width: int | None = None
+    physical_height: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.dpi_scale is None:
+            self.dpi_scale = self.scale
 
 
 @dataclass
@@ -207,7 +227,7 @@ class UiActionResult:
 
 
 class PlatformAdapter(ABC):
-    """Every Linux graphical backend implements this surface."""
+    """Every graphical backend implements this surface."""
 
     id: str = "unsupported"
     platform: str = "linux"
