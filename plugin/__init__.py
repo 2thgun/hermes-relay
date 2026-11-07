@@ -6,26 +6,76 @@ v0.3.0+ plugin system.
 Drop this folder into ~/.hermes/plugins/hermes-relay and add `hermes-relay`
 to `plugins.enabled` in ~/.hermes/config.yaml, then restart hermes.
 Run `hermes pair` to generate a QR code for pairing clients.
+
+Import cost matters here: ``python -m plugin.relay.client`` imports this
+package first, and the headless client must start on a machine that only has
+its own runtime dependencies (``aiohttp``, ``websocket-client``).  Tool
+modules pull in ``requests``/``yaml``/``segno`` and the rest of the plugin
+stack, so they are imported inside :func:`register` (or on first attribute
+access via :pep:`562`) instead of at module import time.
 """
 
+import importlib
 import logging
-
-from .tools.android_tool import _SCHEMAS, _HANDLERS, _check_requirements
-from .tools.desktop_tool import (
-    _SCHEMAS as _DESKTOP_SCHEMAS,
-    _HANDLERS as _DESKTOP_HANDLERS,
-    _check_tool as _desktop_check_tool,
-)
-from .tools.relay_plugin_tool import (
-    _SCHEMAS as _RELAY_PLUGIN_SCHEMAS,
-    _HANDLERS as _RELAY_PLUGIN_HANDLERS,
-)
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Attributes that used to be imported eagerly at module scope.  Kept as lazy
+# re-exports so ``from plugin import _SCHEMAS`` and friends keep working for
+# callers that reach into the plugin package directly.
+_LAZY_TOOL_ATTRIBUTES: dict[str, tuple[str, str]] = {
+    "_SCHEMAS": ("plugin.tools.android_tool", "_SCHEMAS"),
+    "_HANDLERS": ("plugin.tools.android_tool", "_HANDLERS"),
+    "_check_requirements": ("plugin.tools.android_tool", "_check_requirements"),
+    "_DESKTOP_SCHEMAS": ("plugin.tools.desktop_tool", "_SCHEMAS"),
+    "_DESKTOP_HANDLERS": ("plugin.tools.desktop_tool", "_HANDLERS"),
+    "_desktop_check_tool": ("plugin.tools.desktop_tool", "_check_tool"),
+    "_RELAY_PLUGIN_SCHEMAS": ("plugin.tools.relay_plugin_tool", "_SCHEMAS"),
+    "_RELAY_PLUGIN_HANDLERS": ("plugin.tools.relay_plugin_tool", "_HANDLERS"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve legacy tool-table attributes without importing them eagerly."""
+    try:
+        module_name, attribute = _LAZY_TOOL_ATTRIBUTES[name]
+    except KeyError:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
+    value = getattr(importlib.import_module(module_name), attribute)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_LAZY_TOOL_ATTRIBUTES))
 
 
 def register(ctx):
     """Called by hermes-agent plugin loader. Registers tools and CLI commands."""
+    # Imported here, not at module scope: a relay *client* install must not
+    # need requests/segno/yaml just to import `plugin`.
+    from .tools.android_tool import (
+        _HANDLERS,
+        _SCHEMAS,
+        _check_requirements,
+    )
+    from .tools.desktop_tool import (
+        _HANDLERS as _DESKTOP_HANDLERS,
+    )
+    from .tools.desktop_tool import (
+        _SCHEMAS as _DESKTOP_SCHEMAS,
+    )
+    from .tools.desktop_tool import (
+        _check_tool as _desktop_check_tool,
+    )
+    from .tools.relay_plugin_tool import (
+        _HANDLERS as _RELAY_PLUGIN_HANDLERS,
+    )
+    from .tools.relay_plugin_tool import (
+        _SCHEMAS as _RELAY_PLUGIN_SCHEMAS,
+    )
+
     # Register 14 android_* tools
     for tool_name, schema in _SCHEMAS.items():
         ctx.register_tool(
@@ -143,8 +193,8 @@ def register(ctx):
     # versions that do not expose register_cli_command.
     try:
         from .cli import (
-            register_cli,
             pair_command,
+            register_cli,
             register_relay_cli,
             relay_command,
         )

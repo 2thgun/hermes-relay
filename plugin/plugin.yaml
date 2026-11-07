@@ -127,3 +127,9 @@ provides_hooks:
   - on_session_start
   - pre_llm_call
   - post_llm_call
+# Settings read by plugin/relay/client/settings.py. Declared so Hermes does not
+# treat them as typos; they are also readable from HERMES_RELAY_* env/.env.
+config_keys:
+  - plugins.entries.hermes-relay.settings.role
+  - plugins.entries.hermes-relay.settings.relay_url
+  - plugins.entries.hermes-relay.settings.client_state

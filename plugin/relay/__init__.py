@@ -7,12 +7,17 @@ entrypoints like ``python -m relay_server`` keep working.
 
 See ``plugin/relay/server.py`` for the aiohttp server,
 ``plugin/relay/channels/terminal.py`` for the PTY-backed terminal handler.
+
+``create_app``/``main`` are re-exported lazily: importing this package must
+stay cheap so the headless client (``plugin.relay.client``) can start on a
+machine that only has the client's own dependencies.  The server module pulls
+in requests, yaml, psutil, and the rest of the plugin stack.
 """
 
-# Define __version__ *before* importing .server — server.py reads it back
-# during its own import via ``from . import __version__``, so this ordering
-# avoids a circular-import crash during package initialization.
-#
+from __future__ import annotations
+
+from typing import Any
+
 # Canonical plugin version source is pyproject.toml's [project].version.
 # Keep this runtime constant in sync with pyproject.toml for server-v*
 # releases. Android releases use gradle/libs.versions.toml and android-v* tags;
@@ -21,6 +26,21 @@ See ``plugin/relay/server.py`` for the aiohttp server,
 # it should be.
 __version__ = "1.13.1"
 
-from .server import create_app, main  # noqa: E402 — must come after __version__
+__all__ = ["__version__", "create_app", "main"]
 
-__all__ = ["create_app", "main", "__version__"]
+_LAZY_SERVER_ATTRIBUTES = frozenset({"create_app", "main"})
+
+
+def __getattr__(name: str) -> Any:
+    """Load ``create_app``/``main`` from ``plugin.relay.server`` on demand."""
+    if name not in _LAZY_SERVER_ATTRIBUTES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from . import server as _server
+
+    value = getattr(_server, name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | _LAZY_SERVER_ATTRIBUTES)

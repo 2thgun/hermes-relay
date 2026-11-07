@@ -6,10 +6,13 @@ Usage::
     python -m plugin.relay.client run  --url wss://host:8767
     python -m plugin.relay.client tools
     python -m plugin.relay.client status
+    python -m plugin.relay.client install --platform linux --print
 
 ``pair`` performs one handshake, stores the minted session token in
 ``$HERMES_HOME/relay/client.json`` and exits.  ``run`` serves ``desktop_*``
 tool calls until interrupted, reconnecting with exponential backoff.
+``install`` emits (and, unless ``--print``/``--dry-run`` is given, installs) a
+systemd user unit or a Windows logon Scheduled Task.
 
 Diagnostics go to stderr; machine-readable events go to stdout (one JSON
 object per line) when ``--json`` is passed.
@@ -29,13 +32,20 @@ from typing import Any
 
 from . import __version__
 from .handlers import all_tool_names
-from .identity import ClientIdentity, IdentityError, default_store_path, normalize_relay_url
+from .identity import (
+    ClientIdentity,
+    IdentityError,
+    default_store_path,
+    normalize_relay_url,
+)
 from .runtime import (
     ServeOptions,
     pair,
     prepare_serve,
     serve,
 )
+from .service import ServiceSpec, build_client_command, windows_python
+from .settings import ConfigError, resolve_settings
 from .transport import AuthError, TransportError
 
 logger = logging.getLogger("hermes_relay.client")
@@ -74,11 +84,30 @@ def _iso(ts: float | None) -> str | None:
 
 async def _cmd_pair(args: argparse.Namespace) -> int:
     try:
+        settings = resolve_settings(relay_url=args.url, client_state=args.state)
+    except ConfigError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        return EXIT_USAGE
+    if not settings.relay_url:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "no relay URL supplied; pass --url or set "
+                        "HERMES_RELAY_URL / relay_url in plugin settings"
+                    ),
+                }
+            ),
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    try:
         result = await pair(
-            args.url,
+            settings.relay_url,
             args.code,
             name=args.name,
-            store_path=args.state,
+            store_path=settings.client_state,
             insecure=args.insecure,
             auth_timeout=args.timeout,
         )
@@ -111,22 +140,29 @@ async def _cmd_pair(args: argparse.Namespace) -> int:
 # ── run ─────────────────────────────────────────────────────────────────────
 
 
-def _resolve_run_url(args: argparse.Namespace, identity: ClientIdentity) -> str:
-    if args.url:
-        return normalize_relay_url(args.url)
+def _resolve_run_url(configured_url: str | None, identity: ClientIdentity) -> str:
+    if configured_url:
+        return normalize_relay_url(configured_url)
     active = identity.active_record()
     if active is None:
         raise IdentityError(
             "no relay URL supplied and the client store has no active pairing; "
-            "run `python -m plugin.relay.client pair` first"
+            "set HERMES_RELAY_URL (or relay_url in plugin settings) or run "
+            "`hermes-relay-client pair` first"
         )
     return active[0]
 
 
 async def _cmd_run(args: argparse.Namespace) -> int:
-    identity = ClientIdentity.load(args.state)
     try:
-        url = _resolve_run_url(args, identity)
+        settings = resolve_settings(relay_url=args.url, client_state=args.state)
+    except ConfigError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        return EXIT_USAGE
+
+    identity = ClientIdentity.load(settings.client_state)
+    try:
+        url = _resolve_run_url(settings.relay_url, identity)
     except IdentityError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
         return EXIT_USAGE
@@ -148,7 +184,7 @@ async def _cmd_run(args: argparse.Namespace) -> int:
         cwd=args.cwd or os.getcwd(),
         allow=allow,
         deny=deny,
-        store_path=args.state,
+        store_path=settings.client_state,
         insecure=args.insecure,
         heartbeat_interval=args.heartbeat,
         handler_timeout=args.handler_timeout,
@@ -243,7 +279,11 @@ def _cmd_tools(args: argparse.Namespace) -> int:
 
 def _cmd_status(args: argparse.Namespace) -> int:
     try:
-        identity = ClientIdentity.load(args.state)
+        settings = resolve_settings(relay_url=args.url, client_state=args.state)
+        identity = ClientIdentity.load(settings.client_state)
+    except ConfigError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        return EXIT_ERROR
     except IdentityError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
         return EXIT_ERROR
@@ -263,6 +303,9 @@ def _cmd_status(args: argparse.Namespace) -> int:
         )
     payload = {
         "ok": True,
+        "role": settings.role,
+        "relay_url": settings.relay_url,
+        "config_sources": settings.sources,
         "device_id": identity.device_id,
         "device_name": identity.device_name,
         "store": str(identity.path),
@@ -271,6 +314,8 @@ def _cmd_status(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(payload, sort_keys=True))
     else:
+        print(f"role: {settings.role}")
+        print(f"relay_url: {settings.relay_url or '(from stored pairing)'}")
         print(f"device_id: {identity.device_id}")
         print(f"device_name: {identity.device_name}")
         print(f"store: {identity.path}")
@@ -280,12 +325,80 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# ── install ─────────────────────────────────────────────────────────────────
+
+
+def _cmd_install(args: argparse.Namespace) -> int:
+    from .installer import InstallError, apply_install_plan, build_install_plan
+
+    platform = args.platform or ("windows" if os.name == "nt" else "linux")
+    try:
+        settings = resolve_settings(relay_url=args.url, client_state=args.state)
+    except ConfigError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        return EXIT_USAGE
+
+    python = args.python
+    if platform == "windows":
+        python = windows_python(python)
+    command = build_client_command(
+        executable=args.exec_path,
+        python=python,
+        url=settings.relay_url,
+        state=settings.client_state,
+    )
+    spec = ServiceSpec(
+        command=command,
+        working_directory=os.path.expanduser("~"),
+    )
+    try:
+        plan = build_install_plan(platform, spec, unit_dir=args.unit_dir)
+    except (InstallError, ValueError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        return EXIT_USAGE
+
+    if args.print_only:
+        print(plan.primary_content, end="")
+        return EXIT_OK
+    if args.dry_run:
+        print(plan.render())
+        return EXIT_OK
+
+    try:
+        written = apply_install_plan(plan)
+    except (InstallError, OSError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        return EXIT_ERROR
+
+    payload = {
+        "ok": True,
+        "platform": plan.platform,
+        "written": [str(path) for path in written],
+        "commands": [" ".join(command) for command in plan.commands],
+    }
+    if args.json:
+        print(json.dumps(payload, sort_keys=True))
+    else:
+        for path in written:
+            print(f"wrote: {path}")
+        for command in plan.commands:
+            print("ran: " + " ".join(command))
+    return EXIT_OK
+
+
 # ── Parser ──────────────────────────────────────────────────────────────────
+
+
+def _prog() -> str:
+    name = os.path.basename(sys.argv[0] or "")
+    if name.startswith("hermes-relay-client"):
+        return "hermes-relay-client"
+    return "python -m plugin.relay.client"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m plugin.relay.client",
+        prog=_prog(),
         description="Headless Hermes-Relay client: pair a computer and serve desktop tools.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -295,11 +408,21 @@ def build_parser() -> argparse.ArgumentParser:
     common_state.add_argument(
         "--state",
         default=None,
-        help=f"client store path (default: {default_store_path()})",
+        help=(
+            "client store path "
+            f"(default: $HERMES_HOME/relay/client.json, currently {default_store_path()})"
+        ),
+    )
+    common_url = argparse.ArgumentParser(add_help=False)
+    common_url.add_argument(
+        "--url",
+        default=None,
+        help="relay WebSocket URL (default: HERMES_RELAY_URL / relay_url plugin setting)",
     )
 
-    pair_parser = sub.add_parser("pair", parents=[common_state], help="pair and store a session token")
-    pair_parser.add_argument("--url", required=True, help="relay WebSocket URL (ws:// or wss://)")
+    pair_parser = sub.add_parser(
+        "pair", parents=[common_state, common_url], help="pair and store a session token"
+    )
     pair_parser.add_argument("--code", required=True, help="one-time pairing code")
     pair_parser.add_argument("--name", default=None, help="display name (default: hostname)")
     pair_parser.add_argument("--insecure", action="store_true", help="skip TLS verification")
@@ -336,9 +459,49 @@ def build_parser() -> argparse.ArgumentParser:
     tools_parser.add_argument("--json", action="store_true", help="JSON output")
     tools_parser.set_defaults(handler=_cmd_tools)
 
-    status_parser = sub.add_parser("status", parents=[common_state], help="show stored pairings")
+    status_parser = sub.add_parser(
+        "status", parents=[common_state, common_url], help="show role, settings, and stored pairings"
+    )
     status_parser.add_argument("--json", action="store_true", help="JSON output")
     status_parser.set_defaults(handler=_cmd_status)
+
+    install_parser = sub.add_parser(
+        "install",
+        parents=[common_state, common_url],
+        help="generate/install a systemd user unit or Windows logon task",
+    )
+    install_parser.add_argument(
+        "--platform",
+        choices=("linux", "windows"),
+        default=None,
+        help="target platform (default: current OS)",
+    )
+    mode = install_parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--print",
+        dest="print_only",
+        action="store_true",
+        help="print the unit/task script and exit without writing or running anything",
+    )
+    mode.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        help="print the files and commands that would be used, without executing them",
+    )
+    install_parser.add_argument(
+        "--python", default=None, help="Python interpreter for the service (default: current)"
+    )
+    install_parser.add_argument(
+        "--exec", dest="exec_path", default=None, help="run this console script instead of -m"
+    )
+    install_parser.add_argument(
+        "--unit-dir",
+        default=None,
+        help="override the systemd user unit directory (default: $XDG_CONFIG_HOME/systemd/user)",
+    )
+    install_parser.add_argument("--json", action="store_true", help="JSON output")
+    install_parser.set_defaults(handler=_cmd_install, print_only=False, dry_run=False)
 
     return parser
 

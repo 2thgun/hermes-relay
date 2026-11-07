@@ -337,11 +337,7 @@ class ClientIdentity:
         }
         target = Path(self.path)
         directory = target.parent
-        try:
-            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-            os.chmod(directory, 0o700)
-        except OSError as exc:
-            raise IdentityError(f"cannot create client store directory {directory}: {exc}") from exc
+        _ensure_store_directory(directory)
 
         fd: int | None = None
         tmp_path: str | None = None
@@ -380,6 +376,58 @@ class ClientIdentity:
         if not self._dirty:
             return None
         return self.save()
+
+
+def _ensure_store_directory(directory: Path) -> None:
+    """Create ``directory`` (and missing parents) without touching existing ones.
+
+    The old implementation called ``os.chmod`` on whatever parent it found,
+    which fails with ``EPERM`` for a shared directory the user does not own —
+    ``--state /tmp/x.json`` is the common case.  Only directories created by
+    this call are tightened to ``0o700``; an existing parent is left exactly
+    as the operator configured it.
+    """
+    directory = Path(directory)
+    if directory.exists():
+        if not directory.is_dir():
+            raise IdentityError(
+                f"client store parent {directory} exists but is not a directory"
+            )
+        if not os.access(directory, os.W_OK | os.X_OK):
+            raise IdentityError(f"client store directory {directory} is not writable")
+        return
+
+    missing: list[Path] = []
+    current = directory
+    while not current.exists():
+        missing.append(current)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    if not current.is_dir():
+        raise IdentityError(
+            f"client store parent {current} exists but is not a directory"
+        )
+
+    for path in reversed(missing):
+        try:
+            path.mkdir(mode=0o700)
+        except FileExistsError:
+            # Another process created it between the check and mkdir.
+            continue
+        except OSError as exc:
+            raise IdentityError(
+                f"cannot create client store directory {path}: {exc}"
+            ) from exc
+        try:
+            os.chmod(path, 0o700)
+        except OSError as exc:  # pragma: no cover - exotic filesystems
+            logger.debug("Could not tighten permissions on %s: %s", path, exc)
+
+    if not os.access(directory, os.W_OK | os.X_OK):
+        raise IdentityError(f"client store directory {directory} is not writable")
 
 
 def platform_label() -> str:

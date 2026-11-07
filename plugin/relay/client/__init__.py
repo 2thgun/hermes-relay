@@ -16,6 +16,8 @@ CLI::
     python -m plugin.relay.client pair --url wss://host:8767 --code ABC123
     python -m plugin.relay.client run  --url wss://host:8767
 
+The same commands are installed as ``hermes-relay-client pair/run/tools/status``.
+
 GUI, browser/CDP, computer-use, USB/ADB, screenshot, and file-transfer tools
 were out of scope for phase 1.  The Linux graphical ``desktop_ui_*`` family
 arrived in phase 2, and the structured ``desktop_browser_*`` family in phase 3.
