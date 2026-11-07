@@ -1,6 +1,6 @@
 """High-level pair/serve orchestration for the Python relay client.
 
-The CLI in :mod:`plugin.relay.client.__main__` is a thin wrapper around these
+The CLI in :mod:`plugin.relay.device.__main__` is a thin wrapper around these
 two coroutines, which keeps the network lifecycle testable without spawning a
 subprocess.
 """
@@ -213,7 +213,7 @@ def prepare_serve(options: ServeOptions) -> tuple[ServeHandle, ClientIdentity]:
     code = clean_pairing_code(options.code) if options.code else None
     if not token and not code:
         raise IdentityError(
-            f"no stored session for {url}; run `python -m plugin.relay.client pair` first"
+            f"no stored session for {url}; run `python -m plugin.relay.device pair` first"
         )
 
     state = ClientState(

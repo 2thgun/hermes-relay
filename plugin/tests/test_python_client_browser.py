@@ -24,20 +24,20 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from plugin.relay.client.browser.cdp import CdpError, open_cdp
-from plugin.relay.client.browser.controller import (
+from plugin.relay.device.browser.cdp import CdpError, open_cdp
+from plugin.relay.device.browser.controller import (
     BrowserController,
     BrowserError,
     ensure_allowed_url,
 )
-from plugin.relay.client.dispatch import (
+from plugin.relay.device.dispatch import (
     ClientState,
     DesktopDispatcher,
     ToolContext,
     ToolRegistry,
 )
-from plugin.relay.client.handlers import browser as browser_handler
-from plugin.relay.client.handlers import build_registry
+from plugin.relay.device.handlers import browser as browser_handler
+from plugin.relay.device.handlers import build_registry
 from plugin.tests._fake_browser import TINY_PNG, FakeBrowserLauncher, FakeCdpServer
 
 BUTTON = {

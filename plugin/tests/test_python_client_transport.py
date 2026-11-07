@@ -17,15 +17,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from plugin.relay.client import dispatch as dispatch_mod
-from plugin.relay.client.dispatch import ClientState, DesktopDispatcher, ToolRegistry
-from plugin.relay.client.identity import (
+from plugin.relay.device import dispatch as dispatch_mod
+from plugin.relay.device.dispatch import ClientState, DesktopDispatcher, ToolRegistry
+from plugin.relay.device.identity import (
     ClientIdentity,
     IdentityError,
     normalize_relay_url,
 )
-from plugin.relay.client.runtime import ServeOptions, pair, prepare_serve, serve
-from plugin.relay.client.transport import AuthError, RelayTransport
+from plugin.relay.device.runtime import ServeOptions, pair, prepare_serve, serve
+from plugin.relay.device.transport import AuthError, RelayTransport
 from plugin.tests._fake_relay import FakeRelay
 
 

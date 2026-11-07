@@ -2,7 +2,7 @@
 
 The generators are pure string builders so they can be tested on any OS: the
 Linux unit and the Windows Scheduled Task registration script are produced
-here, and :mod:`plugin.relay.client.installer` decides whether to print them
+here, and :mod:`plugin.relay.device.installer` decides whether to print them
 or write/execute them.  Nothing in this module touches an installed service.
 """
 
@@ -51,16 +51,16 @@ def build_client_command(
     """Build the argv a service should run.
 
     Preference order: an explicit console-script path, an explicit Python
-    interpreter (``-m plugin.relay.client``), the installed
+    interpreter (``-m plugin.relay.device``), the installed
     ``hermes-relay-client`` script, then this interpreter with ``-m``.
     """
     if executable:
         head: tuple[str, ...] = (str(executable),)
     elif python:
-        head = (str(python), "-m", "plugin.relay.client")
+        head = (str(python), "-m", "plugin.relay.device")
     else:
         found = shutil.which("hermes-relay-client")
-        head = (found,) if found else (sys.executable, "-m", "plugin.relay.client")
+        head = (found,) if found else (sys.executable, "-m", "plugin.relay.device")
 
     args: list[str] = ["run"]
     if url:

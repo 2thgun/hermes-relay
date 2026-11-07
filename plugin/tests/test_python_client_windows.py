@@ -32,24 +32,24 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from plugin.relay.client.dispatch import ClientState, ToolContext
-from plugin.relay.client.handlers import build_registry
-from plugin.relay.client.handlers import desktop_ui as desktop_ui_handler
-from plugin.relay.client.platform import (
+from plugin.relay.device.dispatch import ClientState, ToolContext
+from plugin.relay.device.handlers import build_registry
+from plugin.relay.device.handlers import desktop_ui as desktop_ui_handler
+from plugin.relay.device.platform import (
     AdapterSelection,
     UnsupportedAdapter,
     reset_platform_adapter_for_tests,
     select_platform_adapter,
 )
-from plugin.relay.client.platform.base import (
+from plugin.relay.device.platform.base import (
     UiCaptureRequest,
     UiError,
     UiPoint,
     UiPointerRequest,
     UiRect,
 )
-from plugin.relay.client.platform.command import CommandResult, CommandRunner
-from plugin.relay.client.platform.windows import (
+from plugin.relay.device.platform.command import CommandResult, CommandRunner
+from plugin.relay.device.platform.windows import (
     DRAG_REASON,
     WindowsAdapter,
     escape_send_keys_text,

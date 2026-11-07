@@ -9,7 +9,7 @@ See ``plugin/relay/server.py`` for the aiohttp server,
 ``plugin/relay/channels/terminal.py`` for the PTY-backed terminal handler.
 
 ``create_app``/``main`` are re-exported lazily: importing this package must
-stay cheap so the headless client (``plugin.relay.client``) can start on a
+stay cheap so the headless client (``plugin.relay.device``) can start on a
 machine that only has the client's own dependencies.  The server module pulls
 in requests, yaml, psutil, and the rest of the plugin stack.
 """

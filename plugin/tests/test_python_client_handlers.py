@@ -16,8 +16,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from plugin.relay.client.dispatch import ClientState, ToolContext, ToolError
-from plugin.relay.client.handlers import build_registry, clipboard, files, jobs, processes, shell
+from plugin.relay.device.dispatch import ClientState, ToolContext, ToolError
+from plugin.relay.device.handlers import build_registry, clipboard, files, jobs, processes, shell
 
 
 def _ctx(cwd: Path, cancel: asyncio.Event | None = None) -> ToolContext:

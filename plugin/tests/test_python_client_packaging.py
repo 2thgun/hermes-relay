@@ -26,22 +26,22 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from plugin.relay.client.identity import (
+from plugin.relay.device.identity import (
     ClientIdentity,
     IdentityError,
     default_store_path,
 )
-from plugin.relay.client.installer import (
+from plugin.relay.device.installer import (
     apply_install_plan,
     build_install_plan,
 )
-from plugin.relay.client.service import (
+from plugin.relay.device.service import (
     ServiceSpec,
     build_client_command,
     render_systemd_unit,
     render_windows_task_script,
 )
-from plugin.relay.client.settings import (
+from plugin.relay.device.settings import (
     ConfigError,
     load_plugin_settings,
     normalize_role,
@@ -70,7 +70,7 @@ import sys
 
 BLOCKED = set(%(blocked)r)
 
-from plugin.relay.client import __main__ as cli
+from plugin.relay.device import __main__ as cli
 assert callable(cli.main), "entry point main is not callable"
 loaded = sorted({name.split(".")[0] for name in sys.modules} & BLOCKED)
 assert not loaded, "heavy dependencies imported: %%s" %% loaded
@@ -83,7 +83,7 @@ import sys
 
 BLOCKED = set(%(blocked)r)
 
-from plugin.relay.client.__main__ import main
+from plugin.relay.device.__main__ import main
 code = main(["tools", "--json"])
 assert code == 0, code
 loaded = sorted({name.split(".")[0] for name in sys.modules} & BLOCKED)
@@ -258,7 +258,7 @@ class EntryPointTests(unittest.TestCase):
         scripts = data["project"]["scripts"]
         self.assertEqual(
             scripts["hermes-relay-client"],
-            "plugin.relay.client.__main__:main",
+            "plugin.relay.device.__main__:main",
         )
         module_path, _, attribute = scripts["hermes-relay-client"].partition(":")
         module = __import__(module_path, fromlist=[attribute])
@@ -273,7 +273,7 @@ class EntryPointTests(unittest.TestCase):
         self.assertNotIn("pyyaml", extra)
 
     def test_module_entry_point_reports_version(self) -> None:
-        result = run_python(["-m", "plugin.relay.client", "--version"], home=self.home)
+        result = run_python(["-m", "plugin.relay.device", "--version"], home=self.home)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("0.1.0", result.stdout)
 
@@ -324,7 +324,7 @@ class StateStoreTests(unittest.TestCase):
 
         identity = ClientIdentity.load(target)
         identity.remember_pairing("wss://relay.example:8767", session_token="tok")
-        with patch("plugin.relay.client.identity.os.chmod", side_effect=guarded_chmod):
+        with patch("plugin.relay.device.identity.os.chmod", side_effect=guarded_chmod):
             saved = identity.save()
 
         self.assertEqual(saved, target)
@@ -349,7 +349,7 @@ class StateStoreTests(unittest.TestCase):
         identity = ClientIdentity.load(target)
         identity.remember_pairing("wss://relay.example:8767", session_token="tok")
         with (
-            patch("plugin.relay.client.identity.os.access", return_value=False),
+            patch("plugin.relay.device.identity.os.access", return_value=False),
             self.assertRaises(IdentityError) as raised,
         ):
             identity.save()
@@ -361,7 +361,7 @@ class StateStoreTests(unittest.TestCase):
             result = run_python(
                 [
                     "-m",
-                    "plugin.relay.client",
+                    "plugin.relay.device",
                     "status",
                     "--state",
                     str(target),
@@ -383,7 +383,7 @@ class StateStoreTests(unittest.TestCase):
             result = run_python(
                 [
                     "-m",
-                    "plugin.relay.client",
+                    "plugin.relay.device",
                     "status",
                     "--state",
                     str(override),
@@ -503,7 +503,7 @@ class RoleSettingsTests(unittest.TestCase):
     def test_cli_status_reports_role_from_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = run_python(
-                ["-m", "plugin.relay.client", "status", "--json"],
+                ["-m", "plugin.relay.device", "status", "--json"],
                 home=Path(tmp),
                 extra_env={
                     "HERMES_RELAY_ROLE": "both",
@@ -518,7 +518,7 @@ class RoleSettingsTests(unittest.TestCase):
     def test_cli_run_uses_configured_url(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = run_python(
-                ["-m", "plugin.relay.client", "run", "--json"],
+                ["-m", "plugin.relay.device", "run", "--json"],
                 home=Path(tmp),
                 extra_env={"HERMES_RELAY_URL": "ws://127.0.0.1:9"},
             )
@@ -530,7 +530,7 @@ class RoleSettingsTests(unittest.TestCase):
     def test_cli_pair_without_url_fails_before_network(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = run_python(
-                ["-m", "plugin.relay.client", "pair", "--code", "ABC123", "--json"],
+                ["-m", "plugin.relay.device", "pair", "--code", "ABC123", "--json"],
                 home=Path(tmp),
             )
         self.assertEqual(result.returncode, 2, result.stderr)
@@ -587,7 +587,7 @@ class InstallerGeneratorTests(unittest.TestCase):
             command=(
                 r"C:\Python313\pythonw.exe",
                 "-m",
-                "plugin.relay.client",
+                "plugin.relay.device",
                 "run",
                 "--url",
                 "wss://relay.example:8767",
@@ -645,7 +645,7 @@ class InstallerGeneratorTests(unittest.TestCase):
         result = run_python(
             [
                 "-m",
-                "plugin.relay.client",
+                "plugin.relay.device",
                 "install",
                 "--platform",
                 "linux",
@@ -669,7 +669,7 @@ class InstallerGeneratorTests(unittest.TestCase):
         result = run_python(
             [
                 "-m",
-                "plugin.relay.client",
+                "plugin.relay.device",
                 "install",
                 "--platform",
                 "linux",
@@ -688,7 +688,7 @@ class InstallerGeneratorTests(unittest.TestCase):
         result = run_python(
             [
                 "-m",
-                "plugin.relay.client",
+                "plugin.relay.device",
                 "install",
                 "--platform",
                 "windows",

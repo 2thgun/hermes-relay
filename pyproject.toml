@@ -26,7 +26,7 @@ tmux = ["libtmux>=0.37.0"]  # optional — enables persistent tmux sessions in t
 voice-lab = ["textual>=8.2.0"]
 
 [project.scripts]
-hermes-relay-client = "plugin.relay.client.__main__:main"
+hermes-relay-client = "plugin.relay.device.__main__:main"
 
 # ── Packaging layout ──────────────────────────────────────────────────────────
 #

@@ -1,6 +1,6 @@
 # Headless Python relay client
 
-`plugin.relay.client` is the controlled-computer side of Hermes-Relay. It pairs
+`plugin.relay.device` is the controlled-computer side of Hermes-Relay. It pairs
 with a relay over WebSocket, stores the minted session token, and serves the
 `desktop_*` tools (files, terminal, processes, clipboard, Linux/Hyprland and
 Windows UI automation, and browser/CDP). It replaces the Bun/TypeScript client
@@ -13,7 +13,7 @@ Requires Python 3.11+ and, at runtime, only:
 
 The client does not import `requests`, `yaml`, `psutil`, `httpx`, or `segno`.
 Those are server/plugin dependencies; `plugin/__init__.py` and
-`plugin/relay/__init__.py` load them lazily so `python -m plugin.relay.client`
+`plugin/relay/__init__.py` load them lazily so `python -m plugin.relay.device`
 starts on a client-only machine.
 
 ## Install
@@ -35,7 +35,7 @@ Either form installs the `hermes-relay-client` console script:
 
 ```bash
 hermes-relay-client --help
-python -m plugin.relay.client --help   # equivalent, no script on PATH needed
+python -m plugin.relay.device --help   # equivalent, no script on PATH needed
 ```
 
 `pip install 'hermes-relay[client]'` is also available as an explicit
@@ -169,7 +169,7 @@ The generated PowerShell registers task **Hermes Relay Client** with:
 - an `AtLogOn` trigger for the current user,
 - `-Hidden` and `Interactive`/`Limited` principal (no admin rights),
 - no execution time limit, restart every minute on failure (`RestartCount 999`),
-- `pythonw.exe -m plugin.relay.client run ...` so no console window appears.
+- `pythonw.exe -m plugin.relay.device run ...` so no console window appears.
 
 Remove it with:
 

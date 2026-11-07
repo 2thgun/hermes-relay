@@ -1,4 +1,4 @@
-"""Subprocess tests for ``python -m plugin.relay.client``.
+"""Subprocess tests for ``python -m plugin.relay.device``.
 
 These cover the actual command line: ``pair`` stores a token, ``run --once``
 serves a real ``desktop.command`` over a fake relay, and ``tools``/``status``
@@ -42,7 +42,7 @@ class CliTests(unittest.IsolatedAsyncioTestCase):
         process = await asyncio.create_subprocess_exec(
             PYTHON,
             "-m",
-            "plugin.relay.client",
+            "plugin.relay.device",
             *args,
             cwd=str(REPO_ROOT),
             env=self._env(),
@@ -89,7 +89,7 @@ class CliTests(unittest.IsolatedAsyncioTestCase):
         process = await asyncio.create_subprocess_exec(
             PYTHON,
             "-m",
-            "plugin.relay.client",
+            "plugin.relay.device",
             "run",
             "--url",
             self.relay.url,

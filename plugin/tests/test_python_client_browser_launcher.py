@@ -18,8 +18,8 @@ from typing import Any
 
 from aiohttp import web
 
-from plugin.relay.client.browser.controller import BrowserController, BrowserError
-from plugin.relay.client.browser.launcher import (
+from plugin.relay.device.browser.controller import BrowserController, BrowserError
+from plugin.relay.device.browser.launcher import (
     DEVTOOLS_PORT_FILE,
     BrowserLauncher,
     BrowserLaunchError,

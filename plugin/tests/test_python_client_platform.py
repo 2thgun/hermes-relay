@@ -11,7 +11,7 @@ suite.  On a machine with a real Hyprland session you can run the adapter
 manually with::
 
     WAYLAND_DISPLAY=wayland-1 HYPRLAND_INSTANCE_SIGNATURE=... \
-        python -m plugin.relay.client run --url ws://127.0.0.1:8767
+        python -m plugin.relay.device run --url ws://127.0.0.1:8767
 
 or point an opt-in sway fixture at ``HyprlandAdapter(runner=SubprocessRunner())``
 with a ``hyprctl`` shim; set ``HERMES_RELAY_TEST_HEADLESS_SWAY=1`` if such a
@@ -30,30 +30,30 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from plugin.relay.client.dispatch import ClientState, ToolContext, ToolRegistry
-from plugin.relay.client.handlers import build_registry
-from plugin.relay.client.handlers import desktop_ui as desktop_ui_handler
-from plugin.relay.client.platform import (
+from plugin.relay.device.dispatch import ClientState, ToolContext, ToolRegistry
+from plugin.relay.device.handlers import build_registry
+from plugin.relay.device.handlers import desktop_ui as desktop_ui_handler
+from plugin.relay.device.platform import (
     AdapterSelection,
     UnsupportedAdapter,
     reset_platform_adapter_for_tests,
     select_platform_adapter,
 )
-from plugin.relay.client.platform.base import (
+from plugin.relay.device.platform.base import (
     UiCaptureRequest,
     UiError,
     UiPointerRequest,
     UiRect,
 )
-from plugin.relay.client.platform.command import (
+from plugin.relay.device.platform.command import (
     CommandResult,
     CommandRunner,
     SubprocessRunner,
     which_binary,
 )
-from plugin.relay.client.platform.linux_hyprland import HyprlandAdapter
-from plugin.relay.client.platform.linux_x11 import X11Adapter
-from plugin.relay.client.runtime import build_live_status_payload
+from plugin.relay.device.platform.linux_hyprland import HyprlandAdapter
+from plugin.relay.device.platform.linux_x11 import X11Adapter
+from plugin.relay.device.runtime import build_live_status_payload
 
 HYPR_ENV = {
     "WAYLAND_DISPLAY": "wayland-1",
@@ -901,7 +901,7 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
             return selection
 
         with patch(
-            "plugin.relay.client.platform.select_platform_adapter", fake_select
+            "plugin.relay.device.platform.select_platform_adapter", fake_select
         ):
             payload = await build_live_status_payload(
                 ClientState(device_id="dev-1"), registry

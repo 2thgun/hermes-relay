@@ -2,11 +2,11 @@
 
 Usage::
 
-    python -m plugin.relay.client pair --url wss://host:8767 --code ABC123
-    python -m plugin.relay.client run  --url wss://host:8767
-    python -m plugin.relay.client tools
-    python -m plugin.relay.client status
-    python -m plugin.relay.client install --platform linux --print
+    python -m plugin.relay.device pair --url wss://host:8767 --code ABC123
+    python -m plugin.relay.device run  --url wss://host:8767
+    python -m plugin.relay.device tools
+    python -m plugin.relay.device status
+    python -m plugin.relay.device install --platform linux --print
 
 ``pair`` performs one handshake, stores the minted session token in
 ``$HERMES_HOME/relay/client.json`` and exits.  ``run`` serves ``desktop_*``
@@ -393,7 +393,7 @@ def _prog() -> str:
     name = os.path.basename(sys.argv[0] or "")
     if name.startswith("hermes-relay-client"):
         return "hermes-relay-client"
-    return "python -m plugin.relay.client"
+    return "python -m plugin.relay.device"
 
 
 def build_parser() -> argparse.ArgumentParser:

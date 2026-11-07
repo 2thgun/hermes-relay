@@ -7,7 +7,7 @@ It is a real loopback aiohttp server, so the tests exercise the actual
 launching Chromium or touching a third-party site.
 
 DOM evaluation is deliberately not a JavaScript engine: expressions emitted by
-:mod:`plugin.relay.client.browser.controller` are recognised by their stable
+:mod:`plugin.relay.device.browser.controller` are recognised by their stable
 shape and answered from configuration.  The optional live Chromium smoke test
 in ``test_python_client_browser_launcher.py`` validates those expressions
 against a real browser.
@@ -24,7 +24,7 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
-from plugin.relay.client.browser.launcher import BrowserLaunchResult, BrowserStatus
+from plugin.relay.device.browser.launcher import BrowserLaunchResult, BrowserStatus
 
 TINY_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="

@@ -69,7 +69,7 @@ if [[ -n "${HERMES_RELAY_CLIENT:-}" ]]; then
 elif command -v hermes-relay-client >/dev/null 2>&1; then
     CMD=("hermes-relay-client")
 else
-    CMD=("$PYTHON" "-m" "plugin.relay.client")
+    CMD=("$PYTHON" "-m" "plugin.relay.device")
     export PYTHONPATH="${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 fi
 

@@ -13,8 +13,8 @@ with a relay over WebSocket, stores the minted session token under
 
 CLI::
 
-    python -m plugin.relay.client pair --url wss://host:8767 --code ABC123
-    python -m plugin.relay.client run  --url wss://host:8767
+    python -m plugin.relay.device pair --url wss://host:8767 --code ABC123
+    python -m plugin.relay.device run  --url wss://host:8767
 
 The same commands are installed as ``hermes-relay-client pair/run/tools/status``.
 

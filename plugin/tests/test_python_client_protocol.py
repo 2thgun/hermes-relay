@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import Any
 
 from plugin.relay.channels.desktop import DesktopHandler
-from plugin.relay.client.dispatch import ClientState, DesktopDispatcher
-from plugin.relay.client.handlers import build_registry
-from plugin.relay.client.runtime import build_status_payload
+from plugin.relay.device.dispatch import ClientState, DesktopDispatcher
+from plugin.relay.device.handlers import build_registry
+from plugin.relay.device.runtime import build_status_payload
 
 
 class _FakeWs:

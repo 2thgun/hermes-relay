@@ -63,7 +63,7 @@ if ($client) {
         throw "python not found on PATH; pass -Python C:\Path\python.exe"
     }
     $command = $interpreter
-    $prefix = @("-m", "plugin.relay.client")
+    $prefix = @("-m", "plugin.relay.device")
     $env:PYTHONPATH = if ($env:PYTHONPATH) { "$repoRoot;$env:PYTHONPATH" } else { $repoRoot }
 }
 
