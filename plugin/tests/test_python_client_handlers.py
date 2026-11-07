@@ -340,6 +340,19 @@ class RegistryAndHealthTests(unittest.IsolatedAsyncioTestCase):
             "desktop_ui_screenshot",
             "desktop_ui_action",
             "desktop_screenshot",
+            # Phase 3 structured browser/CDP surface.
+            "desktop_browser_status",
+            "desktop_browser_open",
+            "desktop_browser_inspect",
+            "desktop_browser_click",
+            "desktop_browser_type",
+            "desktop_browser_key",
+            "desktop_browser_scroll",
+            "desktop_browser_screenshot",
+            "desktop_browser_upload",
+            "desktop_browser_download",
+            "desktop_browser_wait",
+            "desktop_browser_close",
         }
         self.assertEqual(set(names), expected)
         if sys.platform == "win32":

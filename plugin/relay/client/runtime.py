@@ -20,6 +20,7 @@ from typing import Any, Callable
 
 from . import __version__
 from .dispatch import ClientState, DesktopDispatcher
+from .handlers import browser as browser_handlers
 from .handlers import build_registry
 from .identity import (
     ClientIdentity,
@@ -243,6 +244,7 @@ def prepare_serve(options: ServeOptions) -> tuple[ServeHandle, ClientIdentity]:
         state=state,
         cwd=options.cwd,
         timeout=options.handler_timeout,
+        tool_timeouts=browser_handlers.timeouts(),
         interactive=options.interactive,
         on_result=options.on_result,
     )

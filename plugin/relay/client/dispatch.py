@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
@@ -169,6 +170,7 @@ class DesktopDispatcher:
         state: ClientState | None = None,
         cwd: str | None = None,
         timeout: float = HANDLER_TIMEOUT,
+        tool_timeouts: Mapping[str, float] | None = None,
         max_wire_bytes: int = RESPONSE_WIRE_BUDGET_BYTES,
         interactive: bool = False,
         on_result: Callable[[str, dict[str, Any], bool], None] | None = None,
@@ -178,6 +180,7 @@ class DesktopDispatcher:
         self.state = state or ClientState()
         self.cwd = cwd or os.getcwd()
         self.timeout = timeout
+        self.tool_timeouts = dict(tool_timeouts or {})
         self.max_wire_bytes = max_wire_bytes
         self.interactive = interactive
         self.on_result = on_result
@@ -281,8 +284,9 @@ class DesktopDispatcher:
         handler_task = asyncio.create_task(
             self.registry.invoke(tool, args, ctx), name=f"invoke-{tool}"
         )
+        timeout = self.tool_timeouts.get(tool, self.timeout)
         try:
-            done, _pending = await asyncio.wait({handler_task}, timeout=self.timeout)
+            done, _pending = await asyncio.wait({handler_task}, timeout=timeout)
         except asyncio.CancelledError:
             # The dispatcher task itself was cancelled (socket teardown).
             # ``asyncio.wait`` does not propagate cancellation into its
@@ -294,7 +298,7 @@ class DesktopDispatcher:
         if not done:
             cancel.set()
             handler_task.cancel()
-            message = f"timed out after {int(self.timeout * 1000)}ms"
+            message = f"timed out after {int(timeout * 1000)}ms"
             await self._respond({"request_id": request_id, "ok": False, "error": message})
             self.state.record_failure(tool, message)
             self._emit_result(tool, {"error": message}, False)

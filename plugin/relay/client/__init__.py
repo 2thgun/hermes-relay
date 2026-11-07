@@ -17,7 +17,8 @@ CLI::
     python -m plugin.relay.client run  --url wss://host:8767
 
 GUI, browser/CDP, computer-use, USB/ADB, screenshot, and file-transfer tools
-are intentionally out of scope for phase 1.
+were out of scope for phase 1.  The Linux graphical ``desktop_ui_*`` family
+arrived in phase 2, and the structured ``desktop_browser_*`` family in phase 3.
 """
 
 from __future__ import annotations
