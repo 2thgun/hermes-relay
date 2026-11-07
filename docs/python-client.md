@@ -6,6 +6,11 @@ with a relay over WebSocket, stores the minted session token, and serves the
 Windows UI automation, and browser/CDP). It replaces the Bun/TypeScript client
 for headless and service installs and ships in the same plugin package.
 
+The same plugin install can run the relay **host**, the **client**, or **both**;
+`role: client` makes the plugin start this device client automatically and skip
+the relay listener entirely (see
+[Automatic start from the plugin](#automatic-start-from-the-plugin)).
+
 Requires Python 3.11+ and, at runtime, only:
 
 - `aiohttp` (relay transport and CDP)
@@ -37,6 +42,12 @@ Either form installs the `hermes-relay-client` console script:
 hermes-relay-client --help
 python -m plugin.relay.device --help   # equivalent, no script on PATH needed
 ```
+
+A plugin-folder install (`hermes plugins install Codename-11/hermes-relay/plugin`)
+drops the same tree into `~/.hermes/plugins/hermes-relay/`; there the package
+root is that folder, so the equivalent module invocation is
+`python -m relay.device` run from the plugin directory (or
+`hermes relay client ...`). No `pip install` is required for that layout.
 
 `pip install 'hermes-relay[client]'` is also available as an explicit
 dependency declaration; it does not remove the base server dependencies.
@@ -89,6 +100,21 @@ hermes-relay-client status --json
 hermes-relay-client tools --json    # tool names this platform advertises
 ```
 
+## CLI surface on an installed plugin
+
+Three equivalent entry points reach the same commands:
+
+| Context | Invocation |
+| --- | --- |
+| pip install / repo checkout | `hermes-relay-client pair\|run\|status\|tools\|install ...` |
+| repo checkout, no script on PATH | `python -m plugin.relay.device ...` |
+| installed plugin folder | `hermes relay client pair\|run\|status\|tools\|install ...` |
+
+`hermes relay client` forwards its arguments unchanged to the device CLI. A
+plugin-folder install (`hermes plugins install`) has no console script on
+`PATH`, so this sub-command is the supported surface there. The supervisor
+uses the same layout detection when it spawns the child.
+
 ## Role and connection settings
 
 One install can be the relay **host** (serves pair codes and relays traffic),
@@ -122,11 +148,76 @@ HERMES_RELAY_ROLE=client hermes-relay-client run
 When PyYAML is not installed (client-only venv), the `config.yaml` layer is
 skipped; environment and `.env` settings still apply.
 
+## Automatic start from the plugin
+
+`plugin.register()` starts the services the configured role needs. It never
+starts the same service twice, and a `client` install never opens the relay
+port.
+
+| Role | Relay host (embedded sidecar) | Device client |
+| --- | --- | --- |
+| `host` (default) | yes | no |
+| `client` | no | yes, when paired |
+| `both` | yes | yes, when paired |
+
+For `client`/`both` the plugin launches a detached child with
+`sys.executable`:
+
+- **repo checkout** — `python -m plugin.relay.device run`, cwd = repo root
+  (the `plugin` package import root);
+- **installed plugin** (`~/.hermes/plugins/hermes-relay`) —
+  `python -m relay.device run`, cwd = the plugin folder (its `relay` package
+  is the import root).
+
+The layout is detected from the package location (`Path(__file__)`), so a
+client install does not need `plugin` to be importable. Tool handlers run with
+`--cwd` set to the user's home directory because the child's process cwd is
+the import root.
+
+The child starts only if **both** conditions hold:
+
+1. a relay URL is configured (`relay_url`) or a stored pairing supplies an
+   active URL, and
+2. the client store (`client_state`) holds a non-expired session token for
+   that URL.
+
+Otherwise the plugin logs one actionable warning and starts nothing; the
+message names the missing piece and the pairing command. It never pairs
+automatically:
+
+```bash
+# installed plugin (no console script on PATH)
+hermes relay client pair --url wss://relay.example:8767 --code ABC123 --name workstation
+
+# pip install / repo checkout
+hermes-relay-client pair --url wss://relay.example:8767 --code ABC123
+python -m plugin.relay.device pair --url wss://relay.example:8767 --code ABC123
+```
+
+After pairing, restart Hermes (or re-enable the plugin) so `register()` starts
+the client. Supervision details:
+
+- log: `$HERMES_HOME/logs/hermes-relay-device.log`
+- pid file: `$HERMES_HOME/relay/hermes-relay-device.pid`
+- a live child or pid file blocks a duplicate spawn, so plugin reloads are safe
+- a child spawned by the plugin is terminated on clean plugin exit; a client
+  started by systemd or another process is left alone
+- an invalid `role` is logged and treated as `host`, preserving pre-6 behaviour
+
+Inspect what the plugin would use without starting anything:
+
+```bash
+hermes relay client status --json
+```
+
 ## Install as a service
 
 Both installers run the **Python entry point**, not the Bun binary. They
 support `--print` (emit the unit/task script) and `--dry-run` (show files and
-commands) without touching the machine.
+commands) without touching the machine. The generated command uses the
+detected module (`plugin.relay.device` in a checkout, `relay.device` in an
+installed plugin folder), sets the unit/task working directory to that import
+root, and passes `--cwd` so tool handlers still run from your home directory.
 
 ### Linux — systemd user unit
 
@@ -205,9 +296,10 @@ Unpairing is just deleting the store (`$HERMES_HOME/relay/client.json`, or the
 
 | Path | Purpose |
 | --- | --- |
-| `plugin/relay/client/` | client package (transport, dispatcher, handlers, platform adapters) |
-| `plugin/relay/client/settings.py` | role/URL/state resolver |
-| `plugin/relay/client/service.py` | unit and Scheduled Task generators |
-| `plugin/relay/client/installer.py` | install plan/apply (dry-run safe) |
+| `plugin/relay/device/` | client package (transport, dispatcher, handlers, platform adapters) |
+| `plugin/relay/device/settings.py` | role/URL/state resolver |
+| `plugin/relay/device/supervisor.py` | plugin-side role launcher (layout detection, pid/log, token gate) |
+| `plugin/relay/device/service.py` | unit and Scheduled Task generators |
+| `plugin/relay/device/installer.py` | install plan/apply (dry-run safe) |
 | `scripts/install-client-linux.sh` | systemd user unit wrapper |
 | `scripts/install-client-windows.ps1` | Scheduled Task wrapper |

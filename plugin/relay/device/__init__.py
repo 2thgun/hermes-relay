@@ -17,6 +17,8 @@ CLI::
     python -m plugin.relay.device run  --url wss://host:8767
 
 The same commands are installed as ``hermes-relay-client pair/run/tools/status``.
+In a plugin install, :mod:`plugin.relay.device.supervisor` starts ``run`` as a
+detached child when the plugin role is ``client`` or ``both``.
 
 GUI, browser/CDP, computer-use, USB/ADB, screenshot, and file-transfer tools
 were out of scope for phase 1.  The Linux graphical ``desktop_ui_*`` family

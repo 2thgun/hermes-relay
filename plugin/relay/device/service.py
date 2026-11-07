@@ -46,27 +46,39 @@ def build_client_command(
     executable: str | None = None,
     url: str | None = None,
     state: str | os.PathLike[str] | None = None,
+    module: str | None = None,
+    workdir: str | os.PathLike[str] | None = None,
     extra: Iterable[str] = (),
 ) -> tuple[str, ...]:
     """Build the argv a service should run.
 
     Preference order: an explicit console-script path, an explicit Python
-    interpreter (``-m plugin.relay.device``), the installed
-    ``hermes-relay-client`` script, then this interpreter with ``-m``.
+    interpreter (``-m <module>``), the installed ``hermes-relay-client``
+    script, then this interpreter with ``-m``.  ``module`` defaults to the
+    name this install actually provides (``plugin.relay.device`` in a repo
+    checkout, ``relay.device`` in an installed plugin folder); ``workdir``
+    becomes the child's ``--cwd`` so tool handlers do not run from the import
+    root.
     """
+    if module is None:
+        from .supervisor import detect_client_layout
+
+        module = detect_client_layout().module
     if executable:
         head: tuple[str, ...] = (str(executable),)
     elif python:
-        head = (str(python), "-m", "plugin.relay.device")
+        head = (str(python), "-m", module)
     else:
         found = shutil.which("hermes-relay-client")
-        head = (found,) if found else (sys.executable, "-m", "plugin.relay.device")
+        head = (found,) if found else (sys.executable, "-m", module)
 
     args: list[str] = ["run"]
     if url:
         args.extend(["--url", str(url)])
     if state:
         args.extend(["--state", str(state)])
+    if workdir:
+        args.extend(["--cwd", os.fspath(workdir)])
     args.extend(str(item) for item in extra)
     return (*head, *args)
 

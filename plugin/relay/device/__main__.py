@@ -330,6 +330,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 def _cmd_install(args: argparse.Namespace) -> int:
     from .installer import InstallError, apply_install_plan, build_install_plan
+    from .supervisor import detect_client_layout
 
     platform = args.platform or ("windows" if os.name == "nt" else "linux")
     try:
@@ -338,6 +339,10 @@ def _cmd_install(args: argparse.Namespace) -> int:
         print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
         return EXIT_USAGE
 
+    # The unit/task must `python -m` the module name this install actually
+    # provides: `plugin.relay.device` in a repo checkout, `relay.device` under
+    # ~/.hermes/plugins/hermes-relay.
+    layout = detect_client_layout()
     python = args.python
     if platform == "windows":
         python = windows_python(python)
@@ -346,10 +351,12 @@ def _cmd_install(args: argparse.Namespace) -> int:
         python=python,
         url=settings.relay_url,
         state=settings.client_state,
+        module=layout.module,
+        workdir=os.path.expanduser("~"),
     )
     spec = ServiceSpec(
         command=command,
-        working_directory=os.path.expanduser("~"),
+        working_directory=str(layout.cwd),
     )
     try:
         plan = build_install_plan(platform, spec, unit_dir=args.unit_dir)
@@ -393,7 +400,8 @@ def _prog() -> str:
     name = os.path.basename(sys.argv[0] or "")
     if name.startswith("hermes-relay-client"):
         return "hermes-relay-client"
-    return "python -m plugin.relay.device"
+    # Repo checkout -> plugin.relay.device; installed plugin -> relay.device.
+    return f"python -m {__package__ or 'plugin.relay.device'}"
 
 
 def build_parser() -> argparse.ArgumentParser:

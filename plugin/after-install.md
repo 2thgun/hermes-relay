@@ -10,6 +10,39 @@ Use `hermes pair` to create a QR pairing payload. Use `hermes relay start` to ru
 the relay foreground server, or use the legacy installer if you still need the
 systemd user service and shell shims.
 
+## Role: host, client, or both
+
+`plugin.yaml` declares a `role` setting (also `HERMES_RELAY_ROLE`). It defaults
+to `host`, which keeps the embedded relay server running exactly as before.
+
+On a **controlled computer** set the role to `client` after installing the
+plugin, pair once, and restart Hermes:
+
+```yaml
+# ~/.hermes/config.yaml
+plugins:
+  entries:
+    hermes-relay:
+      settings:
+        role: client
+        relay_url: wss://relay.example:8767
+        client_state: ~/.hermes/relay/client.json
+```
+
+```bash
+hermes relay client pair --url wss://relay.example:8767 --code ABC123
+```
+
+With `role: client` the plugin does **not** open the relay port; it starts the
+Python device client (`python -m relay.device run` from the plugin folder)
+as a detached child once a stored session token exists. Without a token it
+logs a "pair first" warning and starts nothing. `role: both` runs the relay
+server and the device client on one machine. Logs go to
+`$HERMES_HOME/logs/hermes-relay-device.log` and the pid is recorded in
+`$HERMES_HOME/relay/hermes-relay-device.pid`. See
+[docs/python-client.md](../docs/python-client.md#automatic-start-from-the-plugin)
+for the full supervision contract.
+
 ## Two install paths
 
 **Tools-only (this path — `hermes plugins install`):** discovers + enables the

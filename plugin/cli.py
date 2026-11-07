@@ -8,6 +8,7 @@ Registers the following top-level `hermes` sub-commands:
                 [--prefer ROLE] [--legacy-direct-relay]
     hermes relay start [--port PORT] [--no-ssl] [--log-level LEVEL]
     hermes relay doctor [--json]
+    hermes relay client pair|run|status|tools|install [...]
     hermes relay compat [status|install|remove]
     hermes relay insecure-api-key [status|on|off]
     hermes-relay insecure-api-key [status|on|off]
@@ -19,6 +20,7 @@ each sub-command; handlers are dispatched via ``args.func``.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -169,7 +171,6 @@ def register_relay_cli(subparser) -> None:
     )
     start.add_argument("--host", metavar="HOST", help="Bind address (default: 0.0.0.0)")
     start.add_argument("--port", type=int, help="Listen port (default: 8767)")
-    import argparse
     start.add_argument("--secure-link", action=argparse.BooleanOptionalAction, default=None,
                        help="Enable or disable the optional pinned-TLS listener")
     start.add_argument("--secure-link-host", help="Secure Link bind/advertised address")
@@ -226,6 +227,22 @@ def register_relay_cli(subparser) -> None:
         help="Probe timeout in seconds",
     )
     doctor.set_defaults(func=relay_doctor_command)
+
+    client = sub.add_parser(
+        "client",
+        help="Pair, run, inspect, or install the Python device client (controlled computer)",
+    )
+    client.add_argument(
+        "client_args",
+        nargs=argparse.REMAINDER,
+        metavar="COMMAND",
+        help=(
+            "arguments forwarded to the device client: "
+            "pair | run | status | tools | install (e.g. "
+            "`hermes relay client pair --url wss://host:8767 --code ABC123`)"
+        ),
+    )
+    client.set_defaults(func=relay_client_command)
 
     compat = sub.add_parser(
         "compat",
@@ -329,6 +346,20 @@ def relay_doctor_command(args) -> None:
     from .doctor import doctor_command
 
     code = doctor_command(args)
+    if code:
+        raise SystemExit(code)
+
+
+def relay_client_command(args) -> None:
+    """Forward ``hermes relay client ...`` to the Python device client CLI.
+
+    The console script (``hermes-relay-client``) only exists for pip installs;
+    a plugin-folder install has no entry point on PATH.  This sub-command is
+    the always-available surface for pairing/running/status on such an install.
+    """
+    from .relay.device.__main__ import main as device_main
+
+    code = device_main(list(getattr(args, "client_args", None) or []))
     if code:
         raise SystemExit(code)
 
@@ -643,8 +674,6 @@ def main(argv: list[str] | None = None) -> None:
     entry point directly, which keeps runtime operations available on older
     agent CLIs.
     """
-    import argparse
-
     args_list = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(prog="hermes-relay")
 

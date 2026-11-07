@@ -7,12 +7,17 @@ Drop this folder into ~/.hermes/plugins/hermes-relay and add `hermes-relay`
 to `plugins.enabled` in ~/.hermes/config.yaml, then restart hermes.
 Run `hermes pair` to generate a QR code for pairing clients.
 
-Import cost matters here: ``python -m plugin.relay.client`` imports this
+Import cost matters here: ``python -m plugin.relay.device`` imports this
 package first, and the headless client must start on a machine that only has
 its own runtime dependencies (``aiohttp``, ``websocket-client``).  Tool
 modules pull in ``requests``/``yaml``/``segno`` and the rest of the plugin
 stack, so they are imported inside :func:`register` (or on first attribute
 access via :pep:`562`) instead of at module import time.
+
+Role awareness: ``plugins.entries.hermes-relay.settings.role`` (or
+``HERMES_RELAY_ROLE``) selects what this install runs.  ``host`` (default)
+keeps the embedded relay sidecar; ``client`` starts the Python device client
+only; ``both`` runs both.  See :func:`start_role_services`.
 """
 
 import importlib
@@ -49,6 +54,90 @@ def __getattr__(name: str) -> Any:
 
 def __dir__() -> list[str]:
     return sorted(set(globals()) | set(_LAZY_TOOL_ATTRIBUTES))
+
+
+def _resolve_role_settings():
+    """Load the role/URL/state settings, falling back to ``host``.
+
+    An invalid role must not make the plugin unloadable; it downgrades to the
+    pre-phase-6 behaviour with a warning naming the bad value.
+    """
+    from .relay.device.settings import ConfigError, resolve_settings
+
+    try:
+        return resolve_settings()
+    except ConfigError as exc:
+        logger.warning(
+            "Invalid Hermes-Relay role configuration (%s); falling back to role=host",
+            exc,
+        )
+        return resolve_settings(role="host")
+
+
+def _start_embedded_host() -> bool:
+    """Start the relay sidecar; returns True when this call started one."""
+    try:
+        from .relay.embedded import start_embedded_relay
+
+        return start_embedded_relay() is not None
+    except Exception:
+        logger.warning("Embedded relay startup failed; continuing", exc_info=True)
+        return False
+
+
+def start_role_services(settings=None) -> dict[str, Any]:
+    """Start the services required by this install's configured role.
+
+    * ``host``   — embedded relay sidecar only.
+    * ``client`` — no relay listener; detached Python device client only.
+    * ``both``   — relay sidecar plus device client.
+
+    The device client starts only with a stored, unexpired session token and a
+    resolvable relay URL; otherwise the reason is logged and nothing spawns.
+    Idempotent across repeated registration: a live child or pid file is not
+    duplicated.  Returns a summary dict for tests/diagnostics.
+    """
+    if settings is None:
+        try:
+            settings = _resolve_role_settings()
+        except Exception:
+            logger.warning(
+                "Could not resolve the Hermes-Relay role; assuming host", exc_info=True
+            )
+            return {
+                "role": "host",
+                "host_started": _start_embedded_host(),
+                "device_started": False,
+                "device_reason": "role-unresolved",
+            }
+
+    role = settings.role
+    host_started = False
+    device_started = False
+    device_reason = "not-client"
+
+    if settings.runs_host:
+        host_started = _start_embedded_host()
+    else:
+        logger.info("Hermes-Relay role=%s: embedded relay host not started", role)
+
+    if settings.runs_client:
+        try:
+            from .relay.device.supervisor import start_device_client
+
+            result = start_device_client(settings)
+            device_started = result.started
+            device_reason = result.reason
+        except Exception:
+            logger.warning("Device client startup failed; continuing", exc_info=True)
+            device_reason = "error"
+
+    return {
+        "role": role,
+        "host_started": host_started,
+        "device_started": device_started,
+        "device_reason": device_reason,
+    }
 
 
 def register(ctx):
@@ -178,15 +267,14 @@ def register(ctx):
         except Exception:
             logger.debug("Relay plugin-load enhancements failed; continuing", exc_info=True)
 
-    # Run the relay server inside this plugin process. A separately installed
-    # systemd unit is still honoured: if the port is already bound, the
-    # embedded listener logs and yields to it.
+    # Start the services this install's role requires: the embedded relay host
+    # for host/both, the Python device client for client/both.  Role defaults to
+    # host, so an upgraded install keeps its previous behaviour.  Failures are
+    # contained here: tools/CLI registration above must still complete.
     try:
-        from .relay.embedded import start_embedded_relay
-
-        start_embedded_relay()
+        start_role_services()
     except Exception:
-        logger.warning("Embedded relay startup failed; continuing", exc_info=True)
+        logger.warning("Role service startup failed; continuing", exc_info=True)
 
     # Register plugin-native CLI sub-commands: hermes pair + hermes relay.
     # Wrapped in try/except so the plugin still works on older hermes-agent
