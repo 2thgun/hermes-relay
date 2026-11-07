@@ -1,15 +1,17 @@
-"""Non-GUI tool handlers for the Python relay client.
+"""Tool handlers for the Python relay client.
 
 Only tools this package can actually serve are registered, and the registry's
 name list is what the client advertises in its ``desktop.status`` heartbeat.
-Phase 1 deliberately excludes GUI/computer-use, browser/CDP, screenshot, USB,
-ADB, and file-transfer tools; those land in later porting phases.
+Phase 1 covers the non-GUI file/shell/process/clipboard surface; phase 2 adds
+the Linux graphical ``desktop_ui_*`` family and the legacy
+``desktop_screenshot``.  Browser/CDP, Windows, and computer-use/CUA tools remain
+out of scope.
 """
 
 from __future__ import annotations
 
 from ..dispatch import ClientState, ToolRegistry
-from . import clipboard, files, jobs, processes, shell
+from . import clipboard, desktop_ui, files, jobs, processes, shell
 from .health import make_health_handler
 
 
@@ -31,6 +33,7 @@ def build_registry(
     registry.extend(jobs.handlers())
     registry.extend(processes.handlers())
     registry.extend(clipboard.handlers())
+    registry.extend(desktop_ui.handlers())
     registry.add("desktop_health", make_health_handler(state, registry=registry))
     return registry
 
@@ -44,4 +47,4 @@ def all_tool_names() -> list[str]:
 __all__ = ["all_tool_names", "build_registry"]
 
 # Re-export the handler modules for tests and future phases.
-_ = (clipboard, files, jobs, processes, shell)
+_ = (clipboard, desktop_ui, files, jobs, processes, shell)

@@ -312,7 +312,7 @@ class RegistryAndHealthTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.tmp.cleanup)
         self.ctx = _ctx(Path(self.tmp.name))
 
-    async def test_registry_advertises_exact_phase_one_set(self) -> None:
+    async def test_registry_advertises_phase_one_plus_linux_gui_set(self) -> None:
         state = ClientState(device_id="dev-1", device_name="box", url="ws://relay/ws")
         registry = build_registry(state=state)
         names = registry.names()
@@ -334,6 +334,12 @@ class RegistryAndHealthTests(unittest.IsolatedAsyncioTestCase):
             "desktop_clipboard_read",
             "desktop_clipboard_write",
             "desktop_health",
+            # Phase 2 Linux graphical adapter.
+            "desktop_ui_status",
+            "desktop_ui_windows",
+            "desktop_ui_screenshot",
+            "desktop_ui_action",
+            "desktop_screenshot",
         }
         self.assertEqual(set(names), expected)
         if sys.platform == "win32":

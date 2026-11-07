@@ -135,7 +135,12 @@ class ServeHandle:
     task: asyncio.Task[None] | None = None
 
 
-def build_status_payload(state: ClientState, registry: Any) -> dict[str, Any]:
+def build_status_payload(
+    state: ClientState,
+    registry: Any,
+    *,
+    capabilities: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """The ``desktop.status`` heartbeat body (shape mirrors router.ts)."""
     now_ms = int(time.time() * 1000)
     return {
@@ -151,13 +156,52 @@ def build_status_payload(state: ClientState, registry: Any) -> dict[str, Any]:
         "interactive": False,
         "device_id": state.device_id,
         "device_name": state.device_name,
-        "capabilities": {
+        "capabilities": capabilities
+        or {
             "adapter": "python",
             "platform": platform.platform(),
             "graphical": False,
             "capabilities": [],
         },
     }
+
+
+async def build_live_status_payload(state: ClientState, registry: Any) -> dict[str, Any]:
+    """Heartbeat body enriched with the selected desktop adapter.
+
+    The relay's ``desktop_devices`` tool reads this block, so a client that can
+    actually drive Hyprland/X11 must not keep reporting ``graphical: false``.
+    Probe failures degrade to a descriptive no-session block rather than
+    suppressing the heartbeat.
+    """
+
+    from .platform import select_platform_adapter
+    from .platform.base import wire
+
+    try:
+        selection = await select_platform_adapter()
+        environment = await selection.adapter.environment()
+        capabilities = await selection.adapter.capabilities()
+        block: dict[str, Any] = {
+            "adapter": selection.adapter.id,
+            "platform": environment.platform,
+            "session": environment.session,
+            "compositor": environment.compositor,
+            "graphical": environment.graphical,
+            "reason": environment.reason,
+            "capabilities": wire(capabilities),
+            "dependencies": wire(environment.dependencies),
+            "warnings": environment.warnings,
+        }
+    except Exception as exc:  # noqa: BLE001 - a probe must not break status
+        block = {
+            "adapter": "python",
+            "platform": platform.platform(),
+            "graphical": False,
+            "reason": str(exc) or exc.__class__.__name__,
+            "capabilities": [],
+        }
+    return build_status_payload(state, registry, capabilities=block)
 
 
 def prepare_serve(options: ServeOptions) -> tuple[ServeHandle, ClientIdentity]:
@@ -265,7 +309,7 @@ async def serve(handle: ServeHandle, identity: ClientIdentity, options: ServeOpt
     run_task = asyncio.create_task(
         transport.run(
             handle.dispatcher.handle_envelope,
-            status_provider=lambda: build_status_payload(state, registry),
+            status_provider=lambda: build_live_status_payload(state, registry),
             on_connected=on_connected,
             on_disconnected=on_disconnected,
             stop_event=handle.stop_event,
@@ -306,6 +350,7 @@ __all__ = [
     "PairResult",
     "ServeHandle",
     "ServeOptions",
+    "build_live_status_payload",
     "build_status_payload",
     "clean_pairing_code",
     "pair",
